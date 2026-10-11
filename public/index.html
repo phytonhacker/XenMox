@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>XenMox</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header class="XM_HEADER">
+        <img src="assets/logo.png" class="XM_LOGO" alt="XenMox">
+        <h3 class="XM_VE_TEXT">Virtual Environment 0.0.1 Beta</h3>
+    </header>
+
+    <div class="XM_LAYOUT">
+        <div class="XM_SIDEBAR">
+            <div class="XM_VIEW">
+                <select id="XM_VIEW_SE">
+                    <option value="SV">SERVER VIEW</option>
+                </select>
+            </div>
+
+            <!-- A fát az app.js tölti fel (datacenter, node-ok, VM-ek) -->
+            <div id="XM_TREE_ROOT" class="XM_TREE"></div>
+        </div>
+
+        <main class="XM_EVERYTHING">
+
+            <!-- Datacenter beállítások: név, node-ok, node hozzáadása -->
+            <section id="XM_PANE_DC" class="XM_VIEW_PANE" hidden>
+                <div class="XM_CREATEVM_WINDOW">
+                    <header class="CM_CVM_WH"><h4><i class="fa-solid fa-building"></i> Datacenter</h4></header>
+                    <div class="XM_CVM_BODY">
+                        <form id="XM_DC_FORM" class="XM_INLINE_FORM">
+                            <label for="XM_DC_NAME">Name:</label>
+                            <input type="text" id="XM_DC_NAME" maxlength="64">
+                            <button type="submit" class="XM_BTN XM_BTN_PRIMARY">Save</button>
+                        </form>
+
+                        <h5 class="XM_SECTION">Nodes</h5>
+                        <ul id="XM_DC_NODES" class="XM_LIST"></ul>
+
+                        <h5 class="XM_SECTION">Add node (xenmox-con-server)</h5>
+                        <form id="XM_ADDNODE_FORM" class="XM_CVM_PANEL active">
+                            <label for="XM_AN_NAME">Name:</label>
+                            <input type="text" id="XM_AN_NAME" placeholder="prod2" required>
+                            <label for="XM_AN_HOST">Address:</label>
+                            <input type="text" id="XM_AN_HOST" placeholder="192.168.1.20" required>
+                            <label for="XM_AN_PORT">Port:</label>
+                            <input type="number" id="XM_AN_PORT" value="3001" min="1" max="65535">
+                            <label for="XM_AN_TOKEN">Token:</label>
+                            <input type="password" id="XM_AN_TOKEN" autocomplete="off" required>
+                            <span></span>
+                            <button type="submit" class="XM_BTN XM_BTN_PRIMARY"><i class="fa-solid fa-plus"></i> Add node</button>
+                        </form>
+
+                        <h5 class="XM_SECTION">Linked datacenters</h5>
+                        <ul id="XM_DC_LINKS" class="XM_LIST"></ul>
+
+                        <h5 class="XM_SECTION">Link datacenter (másik XenMox főszerver)</h5>
+                        <form id="XM_LINKDC_FORM" class="XM_CVM_PANEL active">
+                            <label for="XM_LD_HOST">Address:</label>
+                            <input type="text" id="XM_LD_HOST" placeholder="192.168.1.30" required>
+                            <label for="XM_LD_PORT">Port:</label>
+                            <input type="number" id="XM_LD_PORT" value="3000" min="1" max="65535">
+                            <label for="XM_LD_TOKEN">Federation token:</label>
+                            <input type="password" id="XM_LD_TOKEN" autocomplete="off" required>
+                            <span></span>
+                            <button type="submit" class="XM_BTN XM_BTN_PRIMARY"><i class="fa-solid fa-link"></i> Link datacenter</button>
+                        </form>
+
+                        <h5 class="XM_SECTION">Federation token (ehhez a szerverhez)</h5>
+                        <div class="XM_INLINE_FORM">
+                            <input type="text" id="XM_FED_TOKEN" readonly>
+                            <button type="button" class="XM_BTN" id="XM_FED_REGEN"><i class="fa-solid fa-rotate"></i> Regenerate</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- VM lista (kiválasztott node) -->
+            <section id="XM_PANE_VMS" class="XM_VIEW_PANE" hidden>
+                <div class="XM_CREATEVM_WINDOW">
+                    <header class="CM_CVM_WH"><h4><i class="fa-solid fa-list"></i> Overview – <span class="XM_PANE_NODE"></span></h4></header>
+                    <h5 class="XM_SECTION XM_PAD"><i class="fa-solid fa-desktop"></i> Virtual machines</h5>
+                    <ul id="XM_VM_LIST" class="XM_LIST"></ul>
+                    <h5 class="XM_SECTION XM_PAD"><i class="fa-brands fa-docker"></i> Containers</h5>
+                    <p id="XM_CT_MSG" class="XM_NOTE" hidden></p>
+                    <ul id="XM_CT_LIST" class="XM_LIST"></ul>
+                </div>
+            </section>
+
+            <!-- Konténer részletek: állapot, vezérlők, napló -->
+            <section id="XM_PANE_CONTAINER" class="XM_VIEW_PANE XM_CONSOLE_PANE" hidden>
+                <div class="XM_CONSOLE_BAR">
+                    <strong id="XM_CT_TITLE"></strong>
+                    <small id="XM_CT_STATE"></small>
+                    <span class="XM_CONSOLE_BTNS">
+                        <button type="button" class="XM_BTN" id="XM_CT_START"><i class="fa-solid fa-play"></i> Start</button>
+                        <button type="button" class="XM_BTN" id="XM_CT_STOP"><i class="fa-solid fa-stop"></i> Stop</button>
+                        <button type="button" class="XM_BTN" id="XM_CT_RESTART"><i class="fa-solid fa-rotate"></i> Restart</button>
+                        <button type="button" class="XM_BTN" id="XM_CT_REFRESH" title="Napló frissítése"><i class="fa-solid fa-arrows-rotate"></i></button>
+                        <button type="button" class="XM_BTN" id="XM_CT_DELETE" title="Törlés"><i class="fa-solid fa-trash"></i></button>
+                    </span>
+                </div>
+                <pre id="XM_CLOG" class="XM_LOGS"></pre>
+            </section>
+
+            <!-- Konténer létrehozó -->
+            <section id="XM_PANE_CCREATE" class="XM_VIEW_PANE" hidden>
+                <div class="XM_CREATEVM_WINDOW">
+                    <header class="CM_CVM_WH"><h4><i class="fa-brands fa-docker"></i> Create container</h4></header>
+                    <div class="XM_CVM_BODY">
+                        <form id="XM_CCR_FORM" class="XM_CVM_PANEL active">
+                            <label for="ccr-node">Node:</label>
+                            <select id="ccr-node"></select>
+                            <label for="ccr-name">Name:</label>
+                            <input type="text" id="ccr-name" placeholder="web" required>
+                            <label for="ccr-image">Image:</label>
+                            <input type="text" id="ccr-image" placeholder="nginx:latest" required>
+                            <label for="ccr-restart">Restart policy:</label>
+                            <select id="ccr-restart">
+                                <option value="unless-stopped">unless-stopped</option>
+                                <option value="always">always</option>
+                                <option value="on-failure">on-failure</option>
+                                <option value="no">no</option>
+                            </select>
+                            <label for="ccr-ports" class="top">Ports:</label>
+                            <textarea id="ccr-ports" rows="2" placeholder="Soronként egy: 8080:80 vagy 5353:53/udp"></textarea>
+                            <label for="ccr-env" class="top">Environment:</label>
+                            <textarea id="ccr-env" rows="3" placeholder="Soronként egy: KULCS=érték"></textarea>
+                            <label for="ccr-volumes" class="top">Volumes:</label>
+                            <textarea id="ccr-volumes" rows="2" placeholder="Soronként egy: kotetnev:/utvonal/a/kontenerben"></textarea>
+                            <label for="ccr-memory">Memory limit (MiB):</label>
+                            <input type="number" id="ccr-memory" min="6" placeholder="nincs korlát">
+                            <label for="ccr-cpus">CPU limit:</label>
+                            <input type="number" id="ccr-cpus" min="0.01" step="0.01" placeholder="nincs korlát">
+                            <span></span>
+                            <button type="submit" class="XM_BTN XM_BTN_PRIMARY"><i class="fa-solid fa-plus"></i> Create</button>
+                        </form>
+                    </div>
+                </div>
+            </section>
+
+            <!-- VM konzol (noVNC) -->
+            <section id="XM_PANE_CONSOLE" class="XM_VIEW_PANE XM_CONSOLE_PANE" hidden>
+                <div class="XM_CONSOLE_BAR">
+                    <strong id="XM_CONSOLE_TITLE"></strong>
+                    <small id="XM_CONSOLE_STATE"></small>
+                    <span class="XM_CONSOLE_BTNS">
+                        <button type="button" class="XM_BTN" id="XM_CON_START"><i class="fa-solid fa-play"></i> Start</button>
+                        <button type="button" class="XM_BTN" id="XM_CON_STOP"><i class="fa-solid fa-stop"></i> Stop</button>
+                        <button type="button" class="XM_BTN" id="XM_CON_CAD" title="Ctrl+Alt+Del"><i class="fa-solid fa-keyboard"></i> Ctrl+Alt+Del</button>
+                        <button type="button" class="XM_BTN" id="XM_CON_FULL" title="Teljes képernyő"><i class="fa-solid fa-expand"></i></button>
+                    </span>
+                </div>
+                <div id="XM_CONSOLE_SCREEN" class="XM_CONSOLE_SCREEN"></div>
+            </section>
+
+            <!-- VM létrehozó -->
+            <section id="XM_PANE_CREATE" class="XM_VIEW_PANE" hidden>
+                <div class="XM_CREATEVM_WINDOW">
+                    <header class="CM_CVM_WH">
+                        <h4><i class="fa-solid fa-desktop"></i> Create Virtual Machine</h4>
+                    </header>
+
+                    <nav class="XM_CVM_TABS">
+                        <button type="button" class="XM_CVM_TAB active">General</button>
+                        <button type="button" class="XM_CVM_TAB">OS</button>
+                        <button type="button" class="XM_CVM_TAB">Disk</button>
+                        <button type="button" class="XM_CVM_TAB">CPU</button>
+                        <button type="button" class="XM_CVM_TAB">Memory</button>
+                        <button type="button" class="XM_CVM_TAB">Network</button>
+                    </nav>
+
+                    <form class="XM_CVM_BODY" onsubmit="return false">
+                        <section class="XM_CVM_PANEL active">
+                            <label for="cvm-node">Node:</label>
+                            <select id="cvm-node"></select>
+                            <label for="cvm-id">VM ID:</label>
+                            <input type="number" id="cvm-id" value="100" min="100" max="999">
+                            <label for="cvm-name">Name:</label>
+                            <input type="text" id="cvm-name" placeholder="vm-name">
+                        </section>
+
+                        <section class="XM_CVM_PANEL">
+                            <label for="cvm-iso">ISO image:</label>
+                            <select id="cvm-iso"></select>
+                            <label for="cvm-os">Guest OS:</label>
+                            <select id="cvm-os">
+                                <option>Linux</option>
+                                <option>Windows</option>
+                                <option>Other</option>
+                            </select>
+                        </section>
+
+                        <section class="XM_CVM_PANEL">
+                            <label for="cvm-disk">Disk size (GiB):</label>
+                            <input type="number" id="cvm-disk" value="32" min="1">
+                        </section>
+
+                        <section class="XM_CVM_PANEL">
+                            <label for="cvm-sockets">Sockets:</label>
+                            <input type="number" id="cvm-sockets" value="1" min="1">
+                            <label for="cvm-cores">Cores:</label>
+                            <input type="number" id="cvm-cores" value="2" min="1">
+                        </section>
+
+                        <section class="XM_CVM_PANEL">
+                            <label for="cvm-mem">Memory (MiB):</label>
+                            <input type="number" id="cvm-mem" value="2048" min="64" step="64">
+                        </section>
+
+                        <section class="XM_CVM_PANEL">
+                            <label for="cvm-model">Model:</label>
+                            <select id="cvm-model">
+                                <option value="virtio">VirtIO (paravirtualized)</option>
+                                <option value="e1000">Intel E1000</option>
+                            </select>
+                        </section>
+                    </form>
+
+                    <footer class="XM_CVM_FOOTER">
+                        <button type="button" class="XM_BTN" id="cvm-back">Back</button>
+                        <button type="button" class="XM_BTN XM_BTN_PRIMARY" id="cvm-next">Next</button>
+                    </footer>
+                </div>
+            </section>
+
+            <!-- Beállítások: ISO feltöltés (kiválasztott node) -->
+            <section id="XM_PANE_SETTINGS" class="XM_VIEW_PANE" hidden>
+                <div class="XM_CREATEVM_WINDOW">
+                    <header class="CM_CVM_WH"><h4><i class="fa-solid fa-gear"></i> Settings – ISO images – <span class="XM_PANE_NODE"></span></h4></header>
+                    <div class="XM_CVM_BODY">
+                        <form id="XM_ISO_FORM" class="XM_ISO_FORM">
+                            <input type="file" id="XM_ISO_FILE" accept=".iso">
+                            <button type="submit" class="XM_BTN XM_BTN_PRIMARY"><i class="fa-solid fa-upload"></i> Upload</button>
+                        </form>
+                        <progress id="XM_ISO_PROGRESS" max="100" value="0" hidden></progress>
+                        <ul id="XM_ISO_LIST" class="XM_LIST"></ul>
+                    </div>
+                </div>
+            </section>
+
+        </main>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

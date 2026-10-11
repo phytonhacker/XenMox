@@ -1,0 +1,471 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+:root {
+    --xm-header-h: 60px;
+    --xm-grey: rgb(78, 77, 77);
+}
+
+[hidden] {
+    display: none !important;
+}
+
+body {
+    font-family: Arial, Helvetica, sans-serif;
+}
+
+/* ---------- Header ---------- */
+.XM_HEADER {
+    background-color: var(--xm-grey);
+    height: var(--xm-header-h);
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 0 16px;
+}
+
+.XM_LOGO {
+    height: 40px;
+    width: auto;
+}
+
+.XM_VE_TEXT {
+    color: white;
+    font-weight: normal;
+}
+
+/* ---------- Layout ---------- */
+.XM_LAYOUT {
+    display: flex;
+    align-items: flex-start;
+}
+
+.XM_SIDEBAR {
+    width: 220px;
+    flex-shrink: 0;
+    height: calc(100vh - var(--xm-header-h));
+    border: 3px solid var(--xm-grey);
+    overflow-y: auto;
+}
+
+.XM_EVERYTHING {
+    flex: 1;
+    min-width: 0;
+    height: calc(100vh - var(--xm-header-h));
+    overflow-y: auto;
+    padding: 16px;
+}
+
+.XM_VIEW {
+    background-color: var(--xm-grey);
+    display: flex;
+    justify-content: center;
+    padding: 4px;
+}
+
+#XM_VIEW_SE {
+    width: 100%;
+    padding: 3px 6px;
+    font-size: 13px;
+}
+
+/* ---------- Fa-nézet ---------- */
+.XM_TREE {
+    font-size: 14px;
+    padding: 8px;
+}
+
+.XM_TREE summary {
+    cursor: pointer;
+    padding: 3px 4px;
+    border-radius: 3px;
+    list-style: none;
+}
+
+.XM_TREE summary::-webkit-details-marker {
+    display: none;
+}
+
+.XM_TREE summary::before {
+    content: "\f054";
+    font-family: "Font Awesome 6 Free";
+    font-weight: 900;
+    font-size: 10px;
+    display: inline-block;
+    width: 16px;
+    transition: transform 0.15s;
+}
+
+.XM_TREE details[open] > summary::before {
+    transform: rotate(90deg);
+}
+
+.XM_TREE summary:hover,
+.XM_TREE li:hover {
+    background-color: rgba(78, 77, 77, 0.15);
+}
+
+.XM_TREE details details,
+.XM_TREE ul {
+    margin-left: 18px;
+}
+
+.XM_TREE ul {
+    list-style: none;
+}
+
+.XM_TREE li {
+    padding: 3px 4px;
+    border-radius: 3px;
+    cursor: pointer;
+}
+
+.XM_TREE i {
+    width: 16px;
+    text-align: center;
+    margin-right: 4px;
+    color: var(--xm-grey);
+}
+
+/* ---------- Ablak ---------- */
+.XM_CREATEVM_WINDOW {
+    width: 640px;
+    max-width: 100%;
+    margin: 24px auto;
+    border: 3px solid var(--xm-grey);
+    border-radius: 3px;
+    background-color: white;
+    font-size: 14px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+}
+
+.CM_CVM_WH {
+    background-color: var(--xm-grey);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+}
+
+.CM_CVM_WH h4 {
+    font-weight: normal;
+}
+
+.XM_CVM_TABS {
+    display: flex;
+    background-color: #eee;
+    border-bottom: 1px solid #ccc;
+}
+
+.XM_CVM_TAB {
+    background: none;
+    border: none;
+    border-bottom: 3px solid transparent;
+    padding: 8px 14px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: inherit;
+}
+
+.XM_CVM_TAB:hover {
+    background-color: rgba(78, 77, 77, 0.1);
+}
+
+.XM_CVM_TAB.active {
+    background-color: white;
+    border-bottom-color: var(--xm-grey);
+    font-weight: bold;
+}
+
+.XM_CVM_BODY {
+    padding: 16px;
+    min-height: 160px;
+}
+
+.XM_CVM_PANEL {
+    display: none;
+    grid-template-columns: 140px 1fr;
+    gap: 10px 12px;
+    align-items: center;
+}
+
+.XM_CVM_PANEL.active {
+    display: grid;
+}
+
+.XM_CVM_PANEL input,
+.XM_CVM_PANEL select {
+    padding: 5px 8px;
+    border: 1px solid #aaa;
+    border-radius: 3px;
+    font-family: inherit;
+    font-size: inherit;
+}
+
+.XM_CVM_PANEL input:focus,
+.XM_CVM_PANEL select:focus {
+    outline: none;
+    border-color: var(--xm-grey);
+    box-shadow: 0 0 0 2px rgba(78, 77, 77, 0.25);
+}
+
+.XM_CVM_FOOTER {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 10px 16px;
+    background-color: #eee;
+    border-top: 1px solid #ccc;
+}
+
+/* ---------- Gombok ---------- */
+.XM_BTN {
+    padding: 6px 14px;
+    border: 1px solid var(--xm-grey);
+    border-radius: 3px;
+    background-color: white;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: inherit;
+}
+
+.XM_BTN:hover:not(:disabled) {
+    background-color: #ddd;
+}
+
+.XM_BTN:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+
+.XM_BTN_PRIMARY {
+    background-color: var(--xm-grey);
+    color: white;
+}
+
+.XM_BTN_PRIMARY:hover:not(:disabled) {
+    background-color: #333;
+}
+
+/* ---------- Listák (VM, ISO) ---------- */
+.XM_LIST {
+    list-style: none;
+}
+
+.XM_LIST li {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-bottom: 1px solid #ddd;
+}
+
+.XM_LIST small {
+    margin-left: 8px;
+    color: #666;
+}
+
+.XM_STATUS_running {
+    color: #2e7d32 !important;
+    font-weight: bold;
+}
+
+.XM_STATUS_stopped {
+    color: #999 !important;
+}
+
+/* ---------- Sidebar VM-ek ---------- */
+.XM_TREE .XM_TREE_VMS {
+    margin-left: 18px;
+    margin-top: 4px;
+    padding-top: 4px;
+    border-top: 1px solid #ddd;
+}
+
+.XM_TREE .XM_TREE_VMS li.selected {
+    background-color: rgba(78, 77, 77, 0.28);
+    font-weight: bold;
+}
+
+.XM_TREE .XM_TREE_VMS li.running i {
+    color: #2e7d32;
+}
+
+.XM_TREE .XM_TREE_VMS li.stopped i {
+    color: #999;
+}
+
+/* ---------- Konzol ---------- */
+.XM_CONSOLE_PANE {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.XM_CONSOLE_PANE[hidden] {
+    display: none;
+}
+
+.XM_CONSOLE_BAR {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    background-color: var(--xm-grey);
+    color: white;
+    border-radius: 3px 3px 0 0;
+    font-size: 14px;
+}
+
+.XM_CONSOLE_BTNS {
+    margin-left: auto;
+    display: flex;
+    gap: 6px;
+}
+
+.XM_CONSOLE_SCREEN {
+    flex: 1;
+    min-height: 300px;
+    background: #000;
+    border: 3px solid var(--xm-grey);
+    border-top: none;
+    position: relative;
+}
+
+.XM_CONSOLE_MSG {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #bbb;
+    font-size: 14px;
+    text-align: center;
+    padding: 16px;
+}
+
+/* ---------- Docker konténerek ---------- */
+.XM_TREE .XM_TREE_VMS li.creating i {
+    color: #ef9a00;
+}
+
+.XM_TREE .XM_TREE_VMS li.error i {
+    color: #c62828;
+}
+
+.XM_PAD {
+    padding: 0 12px;
+}
+
+.XM_NOTE {
+    margin: 0 12px 8px;
+    padding: 8px 10px;
+    border-left: 3px solid #999;
+    background: #f3f3f3;
+    color: #555;
+    font-size: 13px;
+}
+
+.XM_LOGS {
+    flex: 1;
+    min-height: 300px;
+    margin: 0;
+    padding: 10px 12px;
+    overflow: auto;
+    background: #111;
+    color: #ddd;
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 12px;
+    white-space: pre-wrap;
+    word-break: break-all;
+    border: 3px solid var(--xm-grey);
+    border-top: none;
+}
+
+.XM_CVM_PANEL textarea {
+    padding: 5px 8px;
+    border: 1px solid #aaa;
+    border-radius: 3px;
+    font-family: inherit;
+    font-size: inherit;
+    resize: vertical;
+}
+
+.XM_CVM_PANEL textarea:focus {
+    outline: none;
+    border-color: var(--xm-grey);
+    box-shadow: 0 0 0 2px rgba(78, 77, 77, 0.25);
+}
+
+.XM_CVM_PANEL label.top {
+    align-self: start;
+    padding-top: 6px;
+}
+
+/* ---------- Node állapot, Datacenter pane ---------- */
+.XM_DOT {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-left: 6px;
+    vertical-align: middle;
+}
+
+.XM_DOT.online {
+    background-color: #2e7d32;
+}
+
+.XM_DOT.offline {
+    background-color: #c62828;
+}
+
+.XM_TREE .XM_OFFLINE_NOTE {
+    color: #888;
+    cursor: default;
+    font-style: italic;
+}
+
+.XM_TREE .XM_OFFLINE_NOTE:hover {
+    background: none;
+}
+
+.XM_SECTION {
+    margin: 18px 0 8px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid #ccc;
+    font-weight: bold;
+}
+
+.XM_INLINE_FORM {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.XM_INLINE_FORM input {
+    flex: 1;
+    padding: 5px 8px;
+    border: 1px solid #aaa;
+    border-radius: 3px;
+    font-family: inherit;
+    font-size: inherit;
+}
+
+.XM_ISO_FORM {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+#XM_ISO_PROGRESS {
+    width: 100%;
+    margin-bottom: 12px;
+}

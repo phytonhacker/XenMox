@@ -1,0 +1,16 @@
+{
+  "name": "xenmox",
+  "version": "0.0.1",
+  "description": "XenMox - web-based virtualization management for QEMU VMs and Docker containers",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "con-server": "node xenmox-con-server.js"
+  },
+  "dependencies": {
+    "@novnc/novnc": "^1.7.0",
+    "express": "^4.19.2",
+    "multer": "^1.4.5-lts.1",
+    "ws": "^8.22.0"
+  }
+}

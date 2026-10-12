@@ -11,9 +11,33 @@
     <header class="XM_HEADER">
         <img src="assets/logo.png" class="XM_LOGO" alt="XenMox">
         <h3 class="XM_VE_TEXT">Virtual Environment 0.0.1 Beta</h3>
+        <div id="XM_USERBOX" class="XM_USERBOX" hidden>
+            <i class="fa-solid fa-user"></i> <span id="XM_USERNAME"></span>
+            <button type="button" class="XM_BTN" id="XM_PW_OPEN" title="Jelszó módosítása"><i class="fa-solid fa-key"></i></button>
+            <button type="button" class="XM_BTN" id="XM_LOGOUT" title="Kijelentkezés"><i class="fa-solid fa-right-from-bracket"></i> Logout</button>
+        </div>
     </header>
 
-    <div class="XM_LAYOUT">
+    <!-- Bejelentkezés / első beállítás: amíg ez látszik, semmi más nem érhető el -->
+    <div id="XM_AUTH" class="XM_AUTH" hidden>
+        <div class="XM_CREATEVM_WINDOW XM_AUTH_BOX">
+            <header class="CM_CVM_WH"><h4 id="XM_AUTH_TITLE"></h4></header>
+            <form id="XM_AUTH_FORM" class="XM_CVM_BODY XM_CVM_PANEL active">
+                <p id="XM_AUTH_INFO" class="XM_NOTE XM_FULLROW"></p>
+                <label for="XM_AUTH_USER">Username:</label>
+                <input type="text" id="XM_AUTH_USER" autocomplete="username" maxlength="32" required>
+                <label for="XM_AUTH_PASS">Password:</label>
+                <input type="password" id="XM_AUTH_PASS" autocomplete="current-password" maxlength="200" required>
+                <label for="XM_AUTH_PASS2" id="XM_AUTH_P2L">Password again:</label>
+                <input type="password" id="XM_AUTH_PASS2" autocomplete="new-password" maxlength="200">
+                <p id="XM_AUTH_ERR" class="XM_ERR XM_FULLROW" hidden></p>
+                <span></span>
+                <button type="submit" class="XM_BTN XM_BTN_PRIMARY" id="XM_AUTH_BTN"></button>
+            </form>
+        </div>
+    </div>
+
+    <div class="XM_LAYOUT" id="XM_LAYOUT" hidden>
         <div class="XM_SIDEBAR">
             <div class="XM_VIEW">
                 <select id="XM_VIEW_SE">
@@ -49,8 +73,10 @@
                             <input type="text" id="XM_AN_HOST" placeholder="192.168.1.20" required>
                             <label for="XM_AN_PORT">Port:</label>
                             <input type="number" id="XM_AN_PORT" value="3001" min="1" max="65535">
-                            <label for="XM_AN_TOKEN">Token:</label>
-                            <input type="password" id="XM_AN_TOKEN" autocomplete="off" required>
+                            <label for="XM_AN_USER">Username:</label>
+                            <input type="text" id="XM_AN_USER" autocomplete="off" required>
+                            <label for="XM_AN_PASS">Password:</label>
+                            <input type="password" id="XM_AN_PASS" autocomplete="new-password" required>
                             <span></span>
                             <button type="submit" class="XM_BTN XM_BTN_PRIMARY"><i class="fa-solid fa-plus"></i> Add node</button>
                         </form>
@@ -91,20 +117,131 @@
                 </div>
             </section>
 
-            <!-- Konténer részletek: állapot, vezérlők, napló -->
-            <section id="XM_PANE_CONTAINER" class="XM_VIEW_PANE XM_CONSOLE_PANE" hidden>
-                <div class="XM_CONSOLE_BAR">
-                    <strong id="XM_CT_TITLE"></strong>
-                    <small id="XM_CT_STATE"></small>
-                    <span class="XM_CONSOLE_BTNS">
+            <!-- Konténer részletek (dupla kattintás): napló, statisztika, beállítások -->
+            <section id="XM_PANE_CONTAINER" class="XM_VIEW_PANE" hidden>
+                <div class="XM_CREATEVM_WINDOW XM_WIDE">
+                    <header class="CM_CVM_WH">
+                        <h4><i class="fa-brands fa-docker"></i> <span id="XM_CT_TITLE"></span></h4>
+                        <small id="XM_CT_STATE"></small>
+                    </header>
+                    <div class="XM_TOOLBAR">
                         <button type="button" class="XM_BTN" id="XM_CT_START"><i class="fa-solid fa-play"></i> Start</button>
                         <button type="button" class="XM_BTN" id="XM_CT_STOP"><i class="fa-solid fa-stop"></i> Stop</button>
                         <button type="button" class="XM_BTN" id="XM_CT_RESTART"><i class="fa-solid fa-rotate"></i> Restart</button>
-                        <button type="button" class="XM_BTN" id="XM_CT_REFRESH" title="Napló frissítése"><i class="fa-solid fa-arrows-rotate"></i></button>
-                        <button type="button" class="XM_BTN" id="XM_CT_DELETE" title="Törlés"><i class="fa-solid fa-trash"></i></button>
-                    </span>
+                        <button type="button" class="XM_BTN" id="XM_CT_DELETE" title="Törlés"><i class="fa-solid fa-trash"></i> Delete</button>
+                    </div>
+                    <p id="XM_CT_NOTE" class="XM_NOTE" hidden></p>
+                    <nav class="XM_CVM_TABS" id="XM_CT_TABS">
+                        <button type="button" class="XM_CVM_TAB active" data-tab="logs">Logs</button>
+                        <button type="button" class="XM_CVM_TAB" data-tab="stats">Stats</button>
+                        <button type="button" class="XM_CVM_TAB" data-tab="settings">Settings</button>
+                    </nav>
+                    <div class="XM_CVM_BODY XM_TABS_BODY">
+                        <div class="XM_TABPANE" data-pane="logs">
+                            <button type="button" class="XM_BTN" id="XM_CT_REFRESH"><i class="fa-solid fa-arrows-rotate"></i> Refresh</button>
+                            <pre id="XM_CLOG" class="XM_LOGS"></pre>
+                        </div>
+                        <div class="XM_TABPANE" data-pane="stats" hidden><div id="XM_CT_STATS"></div></div>
+                        <div class="XM_TABPANE" data-pane="settings" hidden>
+                            <p id="XM_CTSE_MSG" class="XM_NOTE" hidden></p>
+                            <form id="XM_CTSE_FORM" class="XM_CVM_PANEL active">
+                                <label for="ctse-image">Image:</label>
+                                <input type="text" id="ctse-image" required>
+                                <label for="ctse-restart">Restart policy:</label>
+                                <select id="ctse-restart">
+                                    <option value="unless-stopped">unless-stopped</option>
+                                    <option value="always">always</option>
+                                    <option value="on-failure">on-failure</option>
+                                    <option value="no">no</option>
+                                </select>
+                                <label for="ctse-ports" class="top">Ports:</label>
+                                <textarea id="ctse-ports" rows="2" placeholder="Soronként egy: 8080:80"></textarea>
+                                <label for="ctse-env" class="top">Environment:</label>
+                                <textarea id="ctse-env" rows="3" placeholder="Soronként egy: KULCS=érték"></textarea>
+                                <label for="ctse-volumes" class="top">Volumes:</label>
+                                <textarea id="ctse-volumes" rows="2" placeholder="Soronként egy: kotetnev:/utvonal"></textarea>
+                                <label for="ctse-memory">Memory limit (MiB):</label>
+                                <input type="number" id="ctse-memory" min="6" placeholder="nincs korlát">
+                                <label for="ctse-cpus">CPU limit:</label>
+                                <input type="number" id="ctse-cpus" min="0.01" step="0.01" placeholder="nincs korlát">
+                                <small class="XM_FULLROW">A mentés újra létrehozza a konténert (a konténeren belüli, kötetben nem tárolt módosítások elvesznek, a kötetek adatai megmaradnak).</small>
+                                <span></span>
+                                <button type="submit" class="XM_BTN XM_BTN_PRIMARY" id="XM_CTSE_SAVE"><i class="fa-solid fa-floppy-disk"></i> Save</button>
+                            </form>
+                        </div>
+                    </div>
                 </div>
-                <pre id="XM_CLOG" class="XM_LOGS"></pre>
+            </section>
+
+            <!-- VM részletek (dupla kattintás): statisztika, beállítások -->
+            <section id="XM_PANE_VM" class="XM_VIEW_PANE" hidden>
+                <div class="XM_CREATEVM_WINDOW XM_WIDE">
+                    <header class="CM_CVM_WH">
+                        <h4><i class="fa-solid fa-desktop"></i> <span id="XM_VM_TITLE"></span></h4>
+                        <small id="XM_VM_STATE"></small>
+                    </header>
+                    <div class="XM_TOOLBAR">
+                        <button type="button" class="XM_BTN" id="XM_VM_START"><i class="fa-solid fa-play"></i> Start</button>
+                        <button type="button" class="XM_BTN" id="XM_VM_STOP"><i class="fa-solid fa-stop"></i> Stop</button>
+                        <button type="button" class="XM_BTN" id="XM_VM_CONSOLE"><i class="fa-solid fa-display"></i> Console</button>
+                        <button type="button" class="XM_BTN" id="XM_VM_EJECT" title="Telepítő ISO kivétele"><i class="fa-solid fa-eject"></i> Eject ISO</button>
+                    </div>
+                    <nav class="XM_CVM_TABS" id="XM_VM_TABS">
+                        <button type="button" class="XM_CVM_TAB active" data-tab="stats">Stats</button>
+                        <button type="button" class="XM_CVM_TAB" data-tab="settings">Settings</button>
+                    </nav>
+                    <div class="XM_CVM_BODY XM_TABS_BODY">
+                        <div class="XM_TABPANE" data-pane="stats"><div id="XM_VM_STATS"></div></div>
+                        <div class="XM_TABPANE" data-pane="settings" hidden>
+                            <p id="XM_VMSE_MSG" class="XM_NOTE" hidden></p>
+                            <form id="XM_VMSE_FORM">
+                                <fieldset id="XM_VMSE_FS" class="XM_CVM_PANEL active">
+                                    <label for="vmse-name">Name:</label>
+                                    <input type="text" id="vmse-name" required>
+                                    <label for="vmse-os">Guest OS:</label>
+                                    <select id="vmse-os"><option>Linux</option><option>Windows</option><option>Other</option></select>
+                                    <label for="vmse-iso">ISO image:</label>
+                                    <select id="vmse-iso"></select>
+                                    <label for="vmse-disk">Disk size (GiB):</label>
+                                    <input type="number" id="vmse-disk" min="1">
+                                    <label for="vmse-sockets">Sockets:</label>
+                                    <input type="number" id="vmse-sockets" min="1">
+                                    <label for="vmse-cores">Cores:</label>
+                                    <input type="number" id="vmse-cores" min="1">
+                                    <label for="vmse-mem">Memory (MiB):</label>
+                                    <input type="number" id="vmse-mem" min="64" step="64">
+                                    <label for="vmse-model">Network model:</label>
+                                    <select id="vmse-model">
+                                        <option value="virtio">VirtIO (paravirtualized)</option>
+                                        <option value="e1000">Intel E1000</option>
+                                    </select>
+                                    <label for="vmse-fwd" class="top">Port forwards:</label>
+                                    <textarea id="vmse-fwd" rows="2" placeholder="Soronként egy: 2222:22 (host port : vendég port)"></textarea>
+                                    <small class="XM_FULLROW">A lemez csak növelhető. A beállítások csak leállított VM-nél módosíthatók.</small>
+                                    <span></span>
+                                    <button type="submit" class="XM_BTN XM_BTN_PRIMARY" id="XM_VMSE_SAVE"><i class="fa-solid fa-floppy-disk"></i> Save</button>
+                                </fieldset>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Jelszó módosítása -->
+            <section id="XM_PANE_PASSWORD" class="XM_VIEW_PANE" hidden>
+                <div class="XM_CREATEVM_WINDOW">
+                    <header class="CM_CVM_WH"><h4><i class="fa-solid fa-key"></i> Change password</h4></header>
+                    <form id="XM_PW_FORM" class="XM_CVM_BODY XM_CVM_PANEL active">
+                        <label for="XM_PW_CUR">Current password:</label>
+                        <input type="password" id="XM_PW_CUR" autocomplete="current-password" required>
+                        <label for="XM_PW_NEW">New password:</label>
+                        <input type="password" id="XM_PW_NEW" autocomplete="new-password" required>
+                        <label for="XM_PW_NEW2">New password again:</label>
+                        <input type="password" id="XM_PW_NEW2" autocomplete="new-password" required>
+                        <span></span>
+                        <button type="submit" class="XM_BTN XM_BTN_PRIMARY">Change password</button>
+                    </form>
+                </div>
             </section>
 
             <!-- Konténer létrehozó -->
@@ -151,6 +288,7 @@
                     <span class="XM_CONSOLE_BTNS">
                         <button type="button" class="XM_BTN" id="XM_CON_START"><i class="fa-solid fa-play"></i> Start</button>
                         <button type="button" class="XM_BTN" id="XM_CON_STOP"><i class="fa-solid fa-stop"></i> Stop</button>
+                        <button type="button" class="XM_BTN" id="XM_CON_DETAILS" title="Statisztika és beállítások"><i class="fa-solid fa-chart-line"></i> Details</button>
                         <button type="button" class="XM_BTN" id="XM_CON_CAD" title="Ctrl+Alt+Del"><i class="fa-solid fa-keyboard"></i> Ctrl+Alt+Del</button>
                         <button type="button" class="XM_BTN" id="XM_CON_FULL" title="Teljes képernyő"><i class="fa-solid fa-expand"></i></button>
                     </span>

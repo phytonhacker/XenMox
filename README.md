@@ -21,14 +21,28 @@ apt install docker.io        # csak ha Docker konténereket is szeretnél (opcio
 npm install
 ```
 
+## Bejelentkezés és első beállítás
+
+Új telepítésnél **semmi nem használható**, amíg nincs felhasználó beállítva: a főszerver minden API kérést
+elutasít (403), a con-server pedig mindent (503).
+
+- **Főszerver:** az első megnyitáskor a böngészőben egy "Első beállítás" ablak jelenik meg, itt add meg a
+  felhasználónevet és a jelszót (min. 8 karakter). Utána bejelentkezés kell. Fent a **Logout** és a jelszócsere (kulcs ikon) gomb.
+  Ha nem szeretnéd, hogy a hálózaton bárki beállíthassa az első jelszót, állítsd be parancssorból indítás előtt:
+  `npm start -- --setup`
+- **Con-server (node):** futtasd egyszer: `npm run con-server -- --setup` (felhasználónév + jelszó). Addig minden kérést visszautasít.
+- A jelszavak scrypt-tel hashelve vannak (`data/auth.json`, csak a tulajdonos olvashatja). 5 hibás próbálkozás után 1 percre zárol.
+- Nem interaktív beállításhoz: `XENMOX_USER=admin XENMOX_PASS=... npm run con-server -- --setup`.
+
 ## Két gép összekötése
 
-1. A **második gépen** indítsd el: `npm run con-server`
-   Kiírja a portot (alapból 3001) és a **tokent**. A token a `data/con-server.json` fájlban is megvan.
+1. A **második gépen** állítsd be a con-server felhasználóját (`npm run con-server -- --setup`), majd indítsd: `npm run con-server` (port alapból 3001).
 2. A főszerver webes felületén: **Datacenter → Datacenter settings → Add node**
-   Adj meg nevet, címet (IP), portot és a tokent.
+   Adj meg nevet, címet (IP), portot és a **con-server felhasználónevét és jelszavát**.
 3. Az új node megjelenik a fában (pl. `prod2`), onnantól ugyanúgy kezelhető, mint a `prod1`:
    VM létrehozás, ISO feltöltés (a feltöltött ISO a *kiválasztott node* gépére kerül), indítás, noVNC konzol.
+
+Régebbi, token alapú node-ot töröld, és add hozzá újra felhasználónévvel/jelszóval.
 
 A node-ok és a datacenter átnevezhetők (Datacenter settings), a távoli node eltávolítható
 (a VM-ek ilyenkor a node-on megmaradnak, csak a kapcsolat szűnik meg).
@@ -55,6 +69,25 @@ Fontos tudnivalók:
 - Az összekötés megszüntetése (Linked datacenters → kapcsolat bontása) a másik szerveren semmit nem töröl.
 - A federációs token újragenerálása (Regenerate) megszakítja az eddigi összekötéseket.
 
+## VM és konténer részletek (statisztika, szerkesztés)
+
+A fában **egy kattintás** a VM konzolját (konténernél a naplóját) nyitja, **dupla kattintás** a részleteket:
+
+- **Stats:** állapot, uptime, CPU %, memória, lemez, IP-cím(ek), port továbbítások (3 mp-enként frissül).
+- **Settings:** VM-nél név, OS, ISO, lemez (csak növelhető), CPU, memória, hálókártya, port továbbítások
+  (csak leállított VM-nél). Konténernél image, újraindítási szabály, portok, környezeti változók, kötetek, korlátok.
+- **Konténer szerkesztése = újralétrehozás:** a konténeren belüli, kötetben nem tárolt módosítások elvesznek, a kötetek megmaradnak.
+  Hiba esetén a régi konténer visszaáll. A régebbi XenMox verzióban készült konténerek nem szerkeszthetők.
+- **Pontos VM adatokhoz** a vendégben kell a `qemu-guest-agent` (IP-cím, lemezhasználat) és a virtio-balloon driver
+  (vendég oldali memóriahasználat; Linuxon alapból van). Nélkülük a memória a host oldali foglalást mutatja.
+- A VM-ek beépített (NAT) hálózatot használnak: a vendég címe jellemzően `10.0.2.15`, kívülről csak a **Port forwards**
+  (pl. `2222:22`) mezőben megadott portokon érhető el.
+
+## Telepítő ISO és újratelepítés
+
+Az ISO csak a VM első indulásakor bootol (a telepítő végén az újraindulás már a lemezről megy).
+Telepítés után vedd ki az ISO-t: VM részletek → **Eject ISO** (futó VM-nél is működik), így a következő indításnál sem kerül vissza.
+
 ## Docker konténerek
 
 Minden node-on (a helyin, a con-server node-okon és az összekötött datacentereken is) létrehozhatsz és
@@ -73,8 +106,7 @@ kezelhetsz Docker konténereket, ha a node-on telepítve van és fut a Docker.
 Tudnivalók:
 
 - A XenMox-ot futtató felhasználónak (általában root) hozzá kell férnie a Docker szolgáltatáshoz.
-- **Biztonság:** mivel a felületen nincs bejelentkezés, aki eléri, az bármilyen image-et futtathat a gépen,
-  ami gyakorlatilag root hozzáférés. Csak megbízható hálózaton használd.
+- **Biztonság:** aki be tud jelentkezni, az bármilyen image-et futtathat a gépen, ami gyakorlatilag root hozzáférés. Használj erős jelszót.
 - A környezeti változók értéke a gép folyamatlistájában látszhat, jelszavakat ezért óvatosan add meg.
 - Host könyvtár csatolása (bind mount) szándékosan nincs: csak nevesített kötetek használhatók.
 - Egy konténer belső terminálja (exec) még nincs benne, helyette a napló érhető el.
@@ -85,7 +117,7 @@ Tudnivalók:
 |---|---|---|
 | `PORT` | főszerver | `3000` |
 | `XENMOX_PORT` | con-server | `3001` |
-| `XENMOX_TOKEN` | con-server | a `data/con-server.json`-ban generált |
+| `XENMOX_USER`, `XENMOX_PASS` | mindkettő | csak a nem interaktív `--setup`-hoz |
 | `XENMOX_DATA` | mindkettő | `./data` |
 
 Ha a főszervert és a con-servert ugyanazon a gépen próbálod ki, adj nekik külön `XENMOX_DATA` mappát
@@ -93,7 +125,8 @@ Ha a főszervert és a con-servert ugyanazon a gépen próbálod ki, adj nekik k
 
 ## Biztonság
 
-- A főszerver webes felületén **nincs bejelentkezés**.
-- A főszerver és a con-server közti forgalom sima HTTP, a token is így utazik. Csak megbízható hálózaton
-  (LAN/VPN) használd, vagy tegyél elé TLS-t terminálló reverse proxyt.
-- A főszerver a node-ok tokenjét a `data/nodes.json` fájlban tárolja (csak a tulajdonos olvashatja).
+- Bejelentkezés kötelező (sütis munkamenet: HttpOnly, SameSite=Strict, 12 óra csúszó lejárat), idegen eredetű módosító kérések és WebSocketek tiltva.
+- A főszerver és a con-server közti forgalom sima HTTP, a felhasználónév/jelszó (Basic) is így utazik. Csak megbízható hálózaton
+  (LAN/VPN) használd, vagy tegyél elé TLS-t terminálló reverse proxyt (HTTPS-nél a süti automatikusan `Secure`).
+- A főszerver a node-ok jelszavát a `data/nodes.json` fájlban tárolja titkosítatlanul (0600 jogosultsággal, csak a tulajdonos olvashatja), mert hozzá kell tudnia kapcsolódni.
+- Az első beállítást az végzi el, aki előbb megnyitja a felületet: kerülendő nyílt hálózaton, használd a `--setup` parancsot.

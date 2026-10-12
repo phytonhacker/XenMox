@@ -5,7 +5,14 @@ const enc = encodeURIComponent;
 async function api(url, options = {}) {
     const res = await fetch(url, options);
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || `Hiba (${res.status})`);
+    if (!res.ok) {
+        // lejárt munkamenet / még nincs beállított felhasználó: vissza a bejelentkezéshez
+        if (res.status === 401 && data.login) showAuth("login");
+        if (res.status === 403 && data.setup) showAuth("setup");
+        const err = new Error(data.error || `Hiba (${res.status})`);
+        err.status = res.status;
+        throw err;
+    }
     return data;
 }
 
@@ -20,8 +27,40 @@ function fmtSize(bytes) {
     return mb >= 1024 ? (mb / 1024).toFixed(2) + " GiB" : mb.toFixed(0) + " MiB";
 }
 
+function fmtBytes(n) {
+    if (n == null || !isFinite(n)) return "–";
+    const u = ["B", "KiB", "MiB", "GiB", "TiB"];
+    let i = 0;
+    while (n >= 1024 && i < u.length - 1) {
+        n /= 1024;
+        i++;
+    }
+    return (i === 0 ? n.toFixed(0) : n.toFixed(1)) + " " + u[i];
+}
+
+function fmtDur(s) {
+    if (!s) return "–";
+    const d = Math.floor(s / 86400);
+    const h = Math.floor((s % 86400) / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    return (d ? d + "d " : "") + (h || d ? h + "h " : "") + m + "m " + (s % 60) + "s";
+}
+
 function esc(s) {
     return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+// Egy-egy kijelzős sáv: százalék + felirat
+function bar(pct, text) {
+    const p = Math.max(0, Math.min(100, Number(pct) || 0));
+    const cls = p > 90 ? "crit" : p > 75 ? "warn" : "";
+    return `<div class="XM_BAR"><div class="XM_BAR_FILL ${cls}" style="width:${p.toFixed(1)}%"></div></div><small>${esc(text)}</small>`;
+}
+
+const card = (title, html) => `<div class="XM_CARD"><h5>${esc(title)}</h5>${html}</div>`;
+
+function showAlert(msg) {
+    alert(msg);
 }
 
 // ---------- Állapot ----------
@@ -33,6 +72,7 @@ const state = {
     isos: {},           // kulcs -> [iso]
     containers: {},     // kulcs -> {list: [konténer], error: szöveg|null}
     csel: null,         // kiválasztott konténer: {node, name}
+    vsel: null,         // VM részletek: {node, id}
     node: "local/local", // a menüben kiválasztott node
     sel: null,          // konzolhoz kiválasztott VM: {node, id}
     open: new Set(["dc:local", "local/local"]), // nyitott ágak a fában
@@ -55,6 +95,124 @@ function nodeLabel(key) {
     if (!n) return key;
     return n.remoteDc ? `${n.dcName} / ${n.name}` : n.name;
 }
+
+// ---------- Bejelentkezés ----------
+let locked = true;
+let timers = [];
+let authMode = "login";
+
+function lockUi() {
+    locked = true;
+    timers.forEach(clearInterval);
+    timers = [];
+    disconnectConsole();
+    $("#XM_LAYOUT").hidden = true;
+    $("#XM_USERBOX").hidden = true;
+}
+
+function showAuth(mode) {
+    lockUi();
+    authMode = mode;
+    const setup = mode === "setup";
+    $("#XM_AUTH").hidden = false;
+    $("#XM_AUTH_TITLE").innerHTML = setup
+        ? '<i class="fa-solid fa-shield-halved"></i> Első beállítás'
+        : '<i class="fa-solid fa-lock"></i> Bejelentkezés';
+    $("#XM_AUTH_INFO").textContent = setup
+        ? "Hozd létre az adminisztrátori felhasználót. Amíg ez nincs beállítva, a szerver semmit nem enged. (A felhasználónév 3–32 karakter, a jelszó legalább 8.)"
+        : "Jelentkezz be a XenMox használatához.";
+    $("#XM_AUTH_PASS2").hidden = !setup;
+    $("#XM_AUTH_PASS2").required = setup;
+    $("#XM_AUTH_P2L").hidden = !setup;
+    $("#XM_AUTH_PASS").autocomplete = setup ? "new-password" : "current-password";
+    $("#XM_AUTH_BTN").textContent = setup ? "Létrehozás" : "Bejelentkezés";
+    $("#XM_AUTH_ERR").hidden = true;
+    $("#XM_AUTH_PASS").value = "";
+    $("#XM_AUTH_PASS2").value = "";
+}
+
+function authError(msg) {
+    const el = $("#XM_AUTH_ERR");
+    el.textContent = msg;
+    el.hidden = false;
+}
+
+$("#XM_AUTH_FORM").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const username = $("#XM_AUTH_USER").value.trim();
+    const password = $("#XM_AUTH_PASS").value;
+    if (authMode === "setup" && password !== $("#XM_AUTH_PASS2").value) return authError("A két jelszó nem egyezik");
+    const btn = $("#XM_AUTH_BTN");
+    btn.disabled = true;
+    try {
+        const r = await api(authMode === "setup" ? "/api/auth/setup" : "/api/auth/login", jsonOpts("POST", { username, password }));
+        $("#XM_AUTH_FORM").reset();
+        await enter(r.username);
+    } catch (err) {
+        if (err.status === 409) return init(); // közben valaki más már beállította
+        authError(err.message);
+    } finally {
+        btn.disabled = false;
+    }
+});
+
+async function enter(username) {
+    $("#XM_AUTH").hidden = true;
+    $("#XM_LAYOUT").hidden = false;
+    $("#XM_USERBOX").hidden = false;
+    $("#XM_USERNAME").textContent = username;
+    locked = false;
+    Object.assign(state, { vms: {}, isos: {}, containers: {}, csel: null, vsel: null, sel: null, node: "local/local" });
+    try {
+        await refreshAll();
+        showPane("XM_PANE_VMS");
+    } catch (e) {
+        console.error(e);
+    }
+    timers = [
+        setInterval(() => !locked && refreshAll().catch(() => {}), 5000),
+        setInterval(tickStats, 3000),
+    ];
+}
+
+async function init() {
+    lockUi();
+    try {
+        const st = await api("/api/auth/status");
+        if (!st.configured) return showAuth("setup");
+        if (!st.authenticated) return showAuth("login");
+        await enter(st.username);
+    } catch (e) {
+        showAuth("login");
+        authError("A szerver nem érhető el");
+    }
+}
+
+$("#XM_LOGOUT").addEventListener("click", async () => {
+    try {
+        await api("/api/auth/logout", { method: "POST" });
+    } catch {}
+    showAuth("login");
+});
+
+$("#XM_PW_OPEN").addEventListener("click", () => {
+    $("#XM_PW_FORM").reset();
+    showPane("XM_PANE_PASSWORD");
+});
+
+$("#XM_PW_FORM").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const pw = $("#XM_PW_NEW").value;
+    if (pw !== $("#XM_PW_NEW2").value) return showAlert("A két új jelszó nem egyezik");
+    try {
+        await api("/api/auth/password", jsonOpts("POST", { current: $("#XM_PW_CUR").value, password: pw }));
+        $("#XM_PW_FORM").reset();
+        showAlert("A jelszó megváltozott. A többi bejelentkezett munkamenet kijelentkeztetve.");
+        showPane("XM_PANE_VMS");
+    } catch (err) {
+        showAlert(err.message);
+    }
+});
 
 // ---------- Adatok betöltése ----------
 async function refreshAll() {
@@ -94,6 +252,7 @@ async function refreshAll() {
             ]);
         })
     );
+    if (locked) return;
 
     renderTree();
     renderVmList();
@@ -102,6 +261,7 @@ async function refreshAll() {
     renderNodeSelect();
     renderCtNodeSelect();
     syncConsole();
+    syncVm();
     syncContainer();
 }
 
@@ -123,15 +283,19 @@ async function refreshIsos(key) {
 // ---------- Sidebar fa ----------
 function renderNodeBranch(n) {
     const vms = state.vms[n.key] || [];
-    const vmItems = vms.map((v) => `
-        <li class="${v.status}${state.sel && state.sel.node === n.key && state.sel.id === v.id ? " selected" : ""}"
-            data-vm="${v.id}" data-node="${esc(n.key)}">
+    const vmItems = vms.map((v) => {
+        const selected = [state.sel, state.vsel].some((s) => s && s.node === n.key && s.id === v.id);
+        return `
+        <li class="${v.status}${selected ? " selected" : ""}" data-vm="${v.id}" data-node="${esc(n.key)}"
+            title="Kattintás: konzol, dupla kattintás: statisztika és beállítások">
             <i class="fa-solid fa-desktop"></i> ${v.id} (${esc(v.name)})
-        </li>`).join("");
+        </li>`;
+    }).join("");
 
     const ctItems = ((state.containers[n.key] || {}).list || []).map((c) => `
         <li class="${ctClass(c)}${state.csel && state.csel.node === n.key && state.csel.name === c.name ? " selected" : ""}"
-            data-ct="${esc(c.name)}" data-node="${esc(n.key)}">
+            data-ct="${esc(c.name)}" data-node="${esc(n.key)}"
+            title="Kattintás: napló, dupla kattintás: statisztika és beállítások">
             <i class="fa-brands fa-docker"></i> ${esc(c.name)}
         </li>`).join("");
 
@@ -177,16 +341,43 @@ $("#XM_TREE_ROOT").addEventListener("toggle", (e) => {
     else state.open.delete(key);
 }, true);
 
+// Egy kattintás: konzol / napló; dupla kattintás: statisztika + beállítások.
+// A rövid késleltetés kell, hogy a dupla kattintás ne nyissa meg előbb a konzolt.
+let clickTimer = null;
+
 $("#XM_TREE_ROOT").addEventListener("click", (e) => {
     const vmLi = e.target.closest("[data-vm]");
-    if (vmLi) return openConsole(vmLi.dataset.node, Number(vmLi.dataset.vm));
+    if (vmLi) {
+        clearTimeout(clickTimer);
+        const { node, vm } = vmLi.dataset;
+        clickTimer = setTimeout(() => openConsole(node, Number(vm)), 250);
+        return;
+    }
     const ctLi = e.target.closest("[data-ct]");
-    if (ctLi) return openContainer(ctLi.dataset.node, ctLi.dataset.ct);
+    if (ctLi) {
+        clearTimeout(clickTimer);
+        const { node, ct } = ctLi.dataset;
+        clickTimer = setTimeout(() => openContainer(node, ct, "logs"), 250);
+        return;
+    }
 
     const viewLi = e.target.closest("[data-view]");
     if (!viewLi) return;
     if (viewLi.dataset.node) state.node = viewLi.dataset.node;
     showPane(viewLi.dataset.view);
+});
+
+$("#XM_TREE_ROOT").addEventListener("dblclick", (e) => {
+    const vmLi = e.target.closest("[data-vm]");
+    if (vmLi) {
+        clearTimeout(clickTimer);
+        return openVm(vmLi.dataset.node, Number(vmLi.dataset.vm), "stats");
+    }
+    const ctLi = e.target.closest("[data-ct]");
+    if (ctLi) {
+        clearTimeout(clickTimer);
+        return openContainer(ctLi.dataset.node, ctLi.dataset.ct, "stats");
+    }
 });
 
 // ---------- Nézetváltás ----------
@@ -199,7 +390,8 @@ function showPane(id) {
         disconnectConsole();
     }
     if (id !== "XM_PANE_CONTAINER") state.csel = null;
-    if (id !== "XM_PANE_CONSOLE" && id !== "XM_PANE_CONTAINER") renderTree();
+    if (id !== "XM_PANE_VM") state.vsel = null;
+    renderTree();
 
     if (id === "XM_PANE_VMS") {
         renderVmList();
@@ -216,6 +408,28 @@ function showPane(id) {
         refreshIsos($("#cvm-node").value || state.node);
     }
 }
+
+// Fülek (Stats / Settings / Logs) kezelése egy panelen belül
+function bindTabs(navSel, onChange) {
+    const nav = $(navSel);
+    nav.addEventListener("click", (e) => {
+        const b = e.target.closest("[data-tab]");
+        if (b) setTab(navSel, b.dataset.tab, onChange);
+    });
+}
+
+function setTab(navSel, tab, onChange) {
+    const nav = $(navSel);
+    nav.querySelectorAll("[data-tab]").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
+    const root = nav.closest(".XM_CREATEVM_WINDOW");
+    root.querySelectorAll(".XM_TABPANE").forEach((p) => (p.hidden = p.dataset.pane !== tab));
+    if (onChange) onChange(tab);
+}
+
+const activeTab = (navSel) => {
+    const b = $(navSel + " .active");
+    return b ? b.dataset.tab : null;
+};
 
 // ---------- Datacenter pane ----------
 function renderDcPane() {
@@ -265,7 +479,7 @@ $("#XM_DC_FORM").addEventListener("submit", async (e) => {
         await api("/api/datacenter", jsonOpts("PATCH", { name: $("#XM_DC_NAME").value }));
         await refreshAll();
     } catch (err) {
-        alert(err.message);
+        showAlert(err.message);
     }
 });
 
@@ -287,7 +501,7 @@ $("#XM_DC_NODES").addEventListener("click", async (e) => {
         }
         await refreshAll();
     } catch (err) {
-        alert(err.message);
+        showAlert(err.message);
     }
 });
 
@@ -300,13 +514,15 @@ $("#XM_ADDNODE_FORM").addEventListener("submit", async (e) => {
             name: $("#XM_AN_NAME").value,
             host: $("#XM_AN_HOST").value,
             port: Number($("#XM_AN_PORT").value),
-            token: $("#XM_AN_TOKEN").value,
+            username: $("#XM_AN_USER").value,
+            password: $("#XM_AN_PASS").value,
         }));
         $("#XM_ADDNODE_FORM").reset();
+        $("#XM_AN_PORT").value = 3001;
         state.open.add("local/" + node.id);
         await refreshAll();
     } catch (err) {
-        alert(err.message);
+        showAlert(err.message);
     } finally {
         btn.disabled = false;
     }
@@ -328,7 +544,7 @@ $("#XM_LINKDC_FORM").addEventListener("submit", async (e) => {
         state.open.add("dc:" + dc.id);
         await refreshAll();
     } catch (err) {
-        alert(err.message);
+        showAlert(err.message);
     } finally {
         btn.disabled = false;
     }
@@ -344,7 +560,7 @@ $("#XM_DC_LINKS").addEventListener("click", async (e) => {
         if (nodeByKey(state.node) && nodeByKey(state.node).dcId === dc.id) state.node = "local/local";
         await refreshAll();
     } catch (err) {
-        alert(err.message);
+        showAlert(err.message);
     }
 });
 
@@ -353,12 +569,12 @@ $("#XM_FED_REGEN").addEventListener("click", async () => {
     try {
         $("#XM_FED_TOKEN").value = (await api("/api/federation/regenerate", { method: "POST" })).token;
     } catch (err) {
-        alert(err.message);
+        showAlert(err.message);
     }
 });
 
 // ---------- VM létrehozó ablak ----------
-const tabs = document.querySelectorAll(".XM_CVM_TAB");
+const tabs = document.querySelectorAll(".XM_CVM_TAB:not([data-tab])");
 const panels = document.querySelectorAll("#XM_PANE_CREATE .XM_CVM_PANEL");
 const backBtn = $("#cvm-back");
 const nextBtn = $("#cvm-next");
@@ -410,9 +626,9 @@ nextBtn.addEventListener("click", async () => {
         $("#cvm-id").value = body.id + 1;
         $("#cvm-name").value = "";
         showTab(0);
-        alert(`A VM létrejött a(z) ${nodeLabel(node)} node-on.`);
+        showAlert(`A VM létrejött a(z) ${nodeLabel(node)} node-on.`);
     } catch (e) {
-        alert(e.message);
+        showAlert(e.message);
     } finally {
         nextBtn.disabled = false;
     }
@@ -447,14 +663,14 @@ $("#XM_ISO_LIST").addEventListener("click", async (e) => {
         await api(`${nb(state.node)}/isos/${enc(btn.dataset.delIso)}`, { method: "DELETE" });
         refreshIsos(state.node);
     } catch (err) {
-        alert(err.message);
+        showAlert(err.message);
     }
 });
 
 $("#XM_ISO_FORM").addEventListener("submit", (e) => {
     e.preventDefault();
     const file = $("#XM_ISO_FILE").files[0];
-    if (!file) return alert("Válassz egy .iso fájlt!");
+    if (!file) return showAlert("Válassz egy .iso fájlt!");
 
     const key = state.node;
     const fd = new FormData();
@@ -476,12 +692,13 @@ $("#XM_ISO_FORM").addEventListener("submit", (e) => {
         } else {
             let msg = "Feltöltési hiba";
             try { msg = JSON.parse(xhr.responseText).error || msg; } catch {}
-            alert(msg);
+            if (xhr.status === 401) showAuth("login");
+            showAlert(msg);
         }
     };
     xhr.onerror = () => {
         bar.hidden = true;
-        alert("Hálózati hiba a feltöltés közben");
+        showAlert("Hálózati hiba a feltöltés közben");
     };
     xhr.open("POST", `${nb(key)}/isos`);
     xhr.send(fd);
@@ -492,12 +709,13 @@ function renderVmList() {
     const vms = state.vms[state.node] || [];
     $("#XM_VM_LIST").innerHTML = vms.length
         ? vms.map((v) => `
-            <li>
+            <li data-vmrow="${v.id}" title="Dupla kattintás: statisztika és beállítások">
                 <span>
                     <i class="fa-solid fa-desktop"></i> ${v.id} – ${esc(v.name)}
                     <small class="XM_STATUS_${v.status}">${v.status}</small>
                 </span>
                 <span>
+                    <button type="button" class="XM_BTN" data-act="details" data-id="${v.id}" title="Statisztika és beállítások"><i class="fa-solid fa-chart-line"></i></button>
                     ${v.status === "running"
                         ? `<button type="button" class="XM_BTN" data-act="console" data-id="${v.id}" title="Konzol"><i class="fa-solid fa-display"></i></button>
                            <button type="button" class="XM_BTN" data-act="stop" data-id="${v.id}"><i class="fa-solid fa-stop"></i></button>`
@@ -508,11 +726,18 @@ function renderVmList() {
         : "<li>Még nincs VM ezen a node-on.</li>";
 }
 
+$("#XM_VM_LIST").addEventListener("dblclick", (e) => {
+    if (e.target.closest("button")) return;
+    const li = e.target.closest("[data-vmrow]");
+    if (li) openVm(state.node, Number(li.dataset.vmrow), "stats");
+});
+
 $("#XM_VM_LIST").addEventListener("click", async (e) => {
     const btn = e.target.closest("[data-act]");
     if (!btn) return;
     const { act, id } = btn.dataset;
     if (act === "console") return openConsole(state.node, Number(id));
+    if (act === "details") return openVm(state.node, Number(id), "stats");
     if (act === "delete" && !confirm("Biztosan törlöd a VM-et és a lemezét?")) return;
     try {
         await api(`${nb(state.node)}/vms/${id}` + (act === "delete" ? "" : "/" + act), {
@@ -521,8 +746,188 @@ $("#XM_VM_LIST").addEventListener("click", async (e) => {
         await new Promise((r) => setTimeout(r, 400));
         refreshAll();
     } catch (err) {
-        alert(err.message);
+        showAlert(err.message);
     }
+});
+
+// ---------- VM részletek: statisztika + beállítások ----------
+const vmOf = (sel) => sel && (state.vms[sel.node] || []).find((v) => v.id === sel.id);
+let vmStatsBusy = false;
+let vmFormLoaded = null; // melyik VM adataival van kitöltve a beállítások űrlap
+
+bindTabs("#XM_VM_TABS", (tab) => {
+    if (tab === "stats") loadVmStats();
+    if (tab === "settings") loadVmForm(true);
+});
+
+function openVm(node, id, tab = "stats") {
+    state.node = node;
+    state.vsel = { node, id };
+    vmFormLoaded = null;
+    showPane("XM_PANE_VM");
+    $("#XM_VM_STATS").innerHTML = "<small>Betöltés...</small>";
+    setTab("#XM_VM_TABS", tab, (t) => {
+        if (t === "stats") loadVmStats();
+        if (t === "settings") loadVmForm(true);
+    });
+    syncVm();
+}
+
+function syncVm() {
+    if (!state.vsel) return;
+    const vm = vmOf(state.vsel);
+    if (!vm) return showPane(nodeByKey(state.vsel.node) && nodeByKey(state.vsel.node).online ? "XM_PANE_VMS" : "XM_PANE_DC");
+
+    $("#XM_VM_TITLE").textContent = `${nodeLabel(state.vsel.node)} / ${vm.id} (${vm.name})`;
+    const st = $("#XM_VM_STATE");
+    st.textContent = vm.status;
+    st.className = "XM_STATUS_" + vm.status;
+    const isRunning = vm.status === "running";
+    $("#XM_VM_START").disabled = isRunning;
+    $("#XM_VM_STOP").disabled = !isRunning;
+    $("#XM_VM_CONSOLE").disabled = !isRunning;
+    $("#XM_VM_EJECT").hidden = !vm.iso;
+
+    // A beállítások csak leállított VM-nél módosíthatók
+    $("#XM_VMSE_FS").disabled = isRunning;
+    const msg = $("#XM_VMSE_MSG");
+    msg.hidden = !isRunning;
+    msg.textContent = isRunning ? "A VM fut: a beállítások módosításához állítsd le." : "";
+    if (activeTab("#XM_VM_TABS") === "settings" && vmFormLoaded !== state.vsel.node + ":" + vm.id) loadVmForm(false);
+}
+
+async function loadVmForm(force) {
+    const vm = vmOf(state.vsel);
+    if (!vm) return;
+    const key = state.vsel.node + ":" + vm.id;
+    if (!force && vmFormLoaded === key) return;
+    vmFormLoaded = key;
+
+    let isos = [];
+    try {
+        isos = await api(`${nb(state.vsel.node)}/isos`);
+    } catch {}
+    $("#vmse-iso").innerHTML = '<option value="">Do not use any media</option>' +
+        isos.map((i) => `<option value="${esc(i.name)}">${esc(i.name)}</option>`).join("");
+    $("#vmse-name").value = vm.name;
+    $("#vmse-os").value = vm.os;
+    $("#vmse-iso").value = vm.iso || "";
+    $("#vmse-disk").value = vm.disk;
+    $("#vmse-disk").min = vm.disk;
+    $("#vmse-sockets").value = vm.sockets;
+    $("#vmse-cores").value = vm.cores;
+    $("#vmse-mem").value = vm.mem;
+    $("#vmse-model").value = vm.model;
+    $("#vmse-fwd").value = (vm.fwd || []).join("\n");
+}
+
+$("#XM_VMSE_FORM").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (!state.vsel) return;
+    const { node, id } = state.vsel;
+    const btn = $("#XM_VMSE_SAVE");
+    btn.disabled = true;
+    try {
+        await api(`${nb(node)}/vms/${id}`, jsonOpts("PUT", {
+            name: $("#vmse-name").value.trim(),
+            os: $("#vmse-os").value,
+            iso: $("#vmse-iso").value,
+            disk: Number($("#vmse-disk").value),
+            sockets: Number($("#vmse-sockets").value),
+            cores: Number($("#vmse-cores").value),
+            mem: Number($("#vmse-mem").value),
+            model: $("#vmse-model").value,
+            fwd: lines("#vmse-fwd"),
+        }));
+        vmFormLoaded = null;
+        await refreshAll();
+        showAlert("A beállítások elmentve.");
+    } catch (err) {
+        showAlert(err.message);
+    } finally {
+        btn.disabled = false;
+    }
+});
+
+function renderVmStats(s) {
+    const running = s.status === "running";
+    const cards = [];
+
+    cards.push(card("Status", `<div class="XM_BIG XM_STATUS_${s.status}">${esc(s.status)}</div>
+        <small>${running ? "Uptime: " + fmtDur(s.uptime) : "A VM le van állítva"}</small>`));
+
+    cards.push(card("CPU", s.cpu.percent == null
+        ? `<div class="XM_BIG">–</div><small>${running ? "Nem mérhető" : "Leállítva"} · ${s.cpu.vcpus} vCPU</small>`
+        : `<div class="XM_BIG">${s.cpu.percent.toFixed(1)}%</div>${bar(s.cpu.percent, `${s.cpu.vcpus} vCPU`)}`));
+
+    if (s.memory.used == null) {
+        cards.push(card("Memory", `<div class="XM_BIG">${fmtBytes(s.memory.allocated)}</div><small>${running ? "Nem mérhető" : "Lefoglalt memória (leállítva)"}</small>`));
+    } else {
+        const pct = (s.memory.used / s.memory.allocated) * 100;
+        cards.push(card("Memory", `<div class="XM_BIG">${fmtBytes(s.memory.used)} / ${fmtBytes(s.memory.allocated)}</div>
+            ${bar(pct, s.memory.source === "guest"
+                ? `${pct.toFixed(0)}% – a vendég rendszer jelentése alapján`
+                : `${pct.toFixed(0)}% – a host oldali foglalás (a vendég pontos értékéhez virtio-balloon driver kell a vendégben)`)}`));
+    }
+
+    const d = s.disk;
+    let diskHtml = `<div class="XM_BIG">${fmtBytes(d.virtualSize)}</div>
+        <small>Lemezkép a hoston: ${fmtBytes(d.hostAllocated)} foglalt</small>`;
+    if (d.guest) {
+        diskHtml += d.guest.map((f) => `<div><small>${esc(f.mount)} (${esc(f.type)}): ${fmtBytes(f.used)} / ${fmtBytes(f.total)}</small>${bar((f.used / f.total) * 100, `${((f.used / f.total) * 100).toFixed(0)}%`)}</div>`).join("");
+    } else if (running) {
+        diskHtml += "<small>A vendég lemezhasználatához qemu-guest-agent kell a vendégben.</small>";
+    }
+    cards.push(card("Disk", diskHtml));
+
+    let net = "";
+    if (s.network.ips.length) {
+        net += s.network.ips.map((i) => `<div><strong>${esc(i.ip)}</strong> <small style="display:inline">${esc(i.iface)}</small></div>`).join("");
+    } else {
+        net += `<small>${running ? "Nincs IP-adat: telepítsd és indítsd el a qemu-guest-agent-et a vendégben. (A beépített hálózatban a vendég címe általában 10.0.2.15.)" : "A VM le van állítva"}</small>`;
+    }
+    if (s.network.forwards.length) {
+        net += `<small>Port forwards (host:vendég): ${s.network.forwards.map(esc).join(", ")}</small>`;
+    }
+    cards.push(card("Network", net));
+
+    $("#XM_VM_STATS").innerHTML = `<div class="XM_CARDS">${cards.join("")}</div>`;
+}
+
+async function loadVmStats() {
+    if (!state.vsel || vmStatsBusy || locked) return;
+    vmStatsBusy = true;
+    const sel = state.vsel;
+    try {
+        const s = await api(`${nb(sel.node)}/vms/${sel.id}/stats`);
+        if (state.vsel && state.vsel.node === sel.node && state.vsel.id === sel.id) renderVmStats(s);
+    } catch (err) {
+        if (state.vsel) $("#XM_VM_STATS").innerHTML = `<p class="XM_ERR">${esc(err.message)}</p>`;
+    } finally {
+        vmStatsBusy = false;
+    }
+}
+
+async function vmDetailAction(act) {
+    if (!state.vsel) return;
+    try {
+        await api(`${nb(state.vsel.node)}/vms/${state.vsel.id}/${act}`, { method: "POST" });
+    } catch (e) {
+        showAlert(e.message);
+    }
+    await new Promise((r) => setTimeout(r, 800));
+    vmFormLoaded = null;
+    await refreshAll();
+    loadVmStats();
+}
+
+$("#XM_VM_START").addEventListener("click", () => vmDetailAction("start"));
+$("#XM_VM_STOP").addEventListener("click", () => vmDetailAction("stop"));
+$("#XM_VM_CONSOLE").addEventListener("click", () => state.vsel && openConsole(state.vsel.node, state.vsel.id));
+$("#XM_VM_EJECT").addEventListener("click", async () => {
+    if (!state.vsel) return;
+    if (!confirm("Kiveszed a telepítő ISO-t? A következő indításnál a VM a lemezéről indul.")) return;
+    await vmDetailAction("eject");
 });
 
 // ---------- noVNC konzol ----------
@@ -581,9 +986,9 @@ async function connectConsole() {
 
 function openConsole(node, id) {
     state.node = node;
+    showPane("XM_PANE_CONSOLE");
     state.sel = { node, id };
     retries = 0;
-    showPane("XM_PANE_CONSOLE");
     renderTree();
     syncConsole();
 }
@@ -618,7 +1023,7 @@ async function vmAction(act) {
     try {
         await api(`${nb(state.sel.node)}/vms/${state.sel.id}/${act}`, { method: "POST" });
     } catch (e) {
-        alert(e.message);
+        showAlert(e.message);
     }
     // indításnál a VNC port, leállításnál a folyamat kilépése miatt
     await new Promise((r) => setTimeout(r, 800));
@@ -627,6 +1032,7 @@ async function vmAction(act) {
 
 $("#XM_CON_START").addEventListener("click", () => vmAction("start"));
 $("#XM_CON_STOP").addEventListener("click", () => vmAction("stop"));
+$("#XM_CON_DETAILS").addEventListener("click", () => state.sel && openVm(state.sel.node, state.sel.id, "stats"));
 $("#XM_CON_CAD").addEventListener("click", () => rfb && rfb.sendCtrlAltDel());
 $("#XM_CON_FULL").addEventListener("click", () => screenEl.requestFullscreen && screenEl.requestFullscreen());
 
@@ -648,25 +1054,30 @@ function renderCtList() {
     $("#XM_CT_LIST").innerHTML = info.error ? "" : info.list.length
         ? info.list.map((c) => {
             const cls = ctClass(c);
+            const n = esc(c.name);
+            const details = `<button type="button" class="XM_BTN" data-ctact="stats" data-name="${n}" title="Statisztika és beállítások"><i class="fa-solid fa-chart-line"></i></button>`;
             const actions = cls === "running"
-                ? `<button type="button" class="XM_BTN" data-ctact="open" data-name="${esc(c.name)}" title="Napló"><i class="fa-solid fa-file-lines"></i></button>
-                   <button type="button" class="XM_BTN" data-ctact="restart" data-name="${esc(c.name)}" title="Újraindítás"><i class="fa-solid fa-rotate"></i></button>
-                   <button type="button" class="XM_BTN" data-ctact="stop" data-name="${esc(c.name)}" title="Leállítás"><i class="fa-solid fa-stop"></i></button>`
+                ? `${details}
+                   <button type="button" class="XM_BTN" data-ctact="open" data-name="${n}" title="Napló"><i class="fa-solid fa-file-lines"></i></button>
+                   <button type="button" class="XM_BTN" data-ctact="restart" data-name="${n}" title="Újraindítás"><i class="fa-solid fa-rotate"></i></button>
+                   <button type="button" class="XM_BTN" data-ctact="stop" data-name="${n}" title="Leállítás"><i class="fa-solid fa-stop"></i></button>`
                 : cls === "stopped"
-                    ? `<button type="button" class="XM_BTN" data-ctact="open" data-name="${esc(c.name)}" title="Napló"><i class="fa-solid fa-file-lines"></i></button>
-                       <button type="button" class="XM_BTN" data-ctact="start" data-name="${esc(c.name)}" title="Indítás"><i class="fa-solid fa-play"></i></button>
-                       <button type="button" class="XM_BTN" data-ctact="delete" data-name="${esc(c.name)}" title="Törlés"><i class="fa-solid fa-trash"></i></button>`
+                    ? `${details}
+                       <button type="button" class="XM_BTN" data-ctact="open" data-name="${n}" title="Napló"><i class="fa-solid fa-file-lines"></i></button>
+                       <button type="button" class="XM_BTN" data-ctact="start" data-name="${n}" title="Indítás"><i class="fa-solid fa-play"></i></button>
+                       <button type="button" class="XM_BTN" data-ctact="delete" data-name="${n}" title="Törlés"><i class="fa-solid fa-trash"></i></button>`
                     : cls === "error"
-                        ? `<button type="button" class="XM_BTN" data-ctact="open" data-name="${esc(c.name)}" title="Hiba részletei"><i class="fa-solid fa-file-lines"></i></button>
-                           <button type="button" class="XM_BTN" data-ctact="delete" data-name="${esc(c.name)}" title="Elvetés"><i class="fa-solid fa-trash"></i></button>`
+                        ? `<button type="button" class="XM_BTN" data-ctact="open" data-name="${n}" title="Hiba részletei"><i class="fa-solid fa-file-lines"></i></button>
+                           <button type="button" class="XM_BTN" data-ctact="delete" data-name="${n}" title="Elvetés"><i class="fa-solid fa-trash"></i></button>`
                         : "";
             return `
-                <li>
+                <li data-ctrow="${n}" title="Dupla kattintás: statisztika és beállítások">
                     <span>
-                        <i class="fa-brands fa-docker"></i> ${esc(c.name)}
+                        <i class="fa-brands fa-docker"></i> ${n}
                         <small>${esc(c.image)}</small>
                         <small class="XM_STATUS_${cls === "running" ? "running" : "stopped"}">${esc(c.status)}</small>
                         ${c.ports ? `<small>${esc(c.ports)}</small>` : ""}
+                        ${c.note ? `<small>${esc(c.note)}</small>` : ""}
                     </span>
                     <span>${actions}</span>
                 </li>`;
@@ -674,11 +1085,18 @@ function renderCtList() {
         : "<li>Még nincs konténer ezen a node-on.</li>";
 }
 
+$("#XM_CT_LIST").addEventListener("dblclick", (e) => {
+    if (e.target.closest("button")) return;
+    const li = e.target.closest("[data-ctrow]");
+    if (li) openContainer(state.node, li.dataset.ctrow, "stats");
+});
+
 $("#XM_CT_LIST").addEventListener("click", async (e) => {
     const btn = e.target.closest("[data-ctact]");
     if (!btn) return;
     const { ctact, name } = btn.dataset;
-    if (ctact === "open") return openContainer(state.node, name);
+    if (ctact === "open") return openContainer(state.node, name, "logs");
+    if (ctact === "stats") return openContainer(state.node, name, "stats");
     if (ctact === "delete" && !confirm(`Biztosan törlöd a(z) "${name}" konténert?`)) return;
     btn.disabled = true;
     try {
@@ -686,7 +1104,7 @@ $("#XM_CT_LIST").addEventListener("click", async (e) => {
             method: ctact === "delete" ? "DELETE" : "POST",
         });
     } catch (err) {
-        alert(err.message);
+        showAlert(err.message);
     }
     refreshAll();
 });
@@ -724,24 +1142,39 @@ $("#XM_CCR_FORM").addEventListener("submit", async (e) => {
         state.node = node;
         await refreshAll();
         showPane("XM_PANE_VMS");
-        alert(`A(z) "${name}" konténer létrehozása elindult. Az image letöltése eltarthat egy ideig, az állapota a listában frissül.`);
+        showAlert(`A(z) "${name}" konténer létrehozása elindult. Az image letöltése eltarthat egy ideig, az állapota a listában frissül.`);
     } catch (err) {
-        alert(err.message);
+        showAlert(err.message);
     } finally {
         btn.disabled = false;
     }
 });
 
-// Konténer részletek: állapot, vezérlők, napló
+// Konténer részletek: napló, statisztika, beállítások
 const logEl = $("#XM_CLOG");
 let logsBusy = false;
+let ctStatsBusy = false;
+let ctFormLoaded = null;
 
-function openContainer(node, name) {
+bindTabs("#XM_CT_TABS", (tab) => {
+    if (tab === "logs") loadLogs();
+    if (tab === "stats") loadCtStats();
+    if (tab === "settings") loadCtForm(true);
+});
+
+function openContainer(node, name, tab = "logs") {
     state.node = node;
-    state.csel = { node, name };
     showPane("XM_PANE_CONTAINER");
+    state.csel = { node, name };
+    ctFormLoaded = null;
     renderTree();
     logEl.textContent = "";
+    $("#XM_CT_STATS").innerHTML = "<small>Betöltés...</small>";
+    setTab("#XM_CT_TABS", tab, (t) => {
+        if (t === "logs") loadLogs();
+        if (t === "stats") loadCtStats();
+        if (t === "settings") loadCtForm(true);
+    });
     syncContainer();
 }
 
@@ -763,6 +1196,111 @@ async function loadLogs() {
     }
 }
 
+function renderCtStats(s) {
+    const running = s.state === "running";
+    const cards = [];
+    cards.push(card("Status", `<div class="XM_BIG XM_STATUS_${running ? "running" : "stopped"}">${esc(s.state)}</div>
+        <small>${running ? "Uptime: " + fmtDur(s.uptime) : ""}</small>`));
+
+    cards.push(card("CPU", s.cpu.percent == null || isNaN(s.cpu.percent)
+        ? `<div class="XM_BIG">–</div>`
+        : `<div class="XM_BIG">${s.cpu.percent.toFixed(1)}%</div>${bar(s.cpu.percent, "egy mag = 100%")}`));
+
+    cards.push(card("Memory", s.memory.used == null
+        ? `<div class="XM_BIG">–</div>`
+        : `<div class="XM_BIG">${esc(s.memory.used)}</div>
+           ${isNaN(s.memory.percent) ? "" : bar(s.memory.percent, `${s.memory.percent.toFixed(1)}% – limit: ${s.memory.limit}`)}`));
+
+    let net = "";
+    if (s.network.ips.length) net += s.network.ips.map((ip) => `<div><strong>${esc(ip)}</strong></div>`).join("");
+    else net += "<small>Nincs IP-cím</small>";
+    if (s.network.io) net += `<small>Hálózat (be / ki): ${esc(s.network.io)}</small>`;
+    cards.push(card("Network", net));
+
+    let disk = `<small>Írható réteg: ${s.disk.writable == null ? "–" : fmtBytes(s.disk.writable)}</small>
+        <small>Image + réteg: ${s.disk.rootfs == null ? "–" : fmtBytes(s.disk.rootfs)}</small>`;
+    if (s.block) disk += `<small>Lemez I/O (olvasás / írás): ${esc(s.block)}</small>`;
+    if (s.pids != null) disk += `<small>Folyamatok: ${esc(s.pids)}</small>`;
+    cards.push(card("Disk", disk));
+
+    $("#XM_CT_STATS").innerHTML = `<div class="XM_CARDS">${cards.join("")}</div>`;
+}
+
+async function loadCtStats() {
+    if (!state.csel || ctStatsBusy || locked) return;
+    ctStatsBusy = true;
+    const sel = state.csel;
+    try {
+        const s = await api(`${nb(sel.node)}/containers/${enc(sel.name)}/stats`);
+        if (state.csel && state.csel.node === sel.node && state.csel.name === sel.name) {
+            if (s.cpu) renderCtStats(s);
+            else $("#XM_CT_STATS").innerHTML = `<small>A konténer még nem áll készen (${esc(s.state)}).</small>`;
+        }
+    } catch (err) {
+        if (state.csel) $("#XM_CT_STATS").innerHTML = `<p class="XM_ERR">${esc(err.message)}</p>`;
+    } finally {
+        ctStatsBusy = false;
+    }
+}
+
+async function loadCtForm(force) {
+    if (!state.csel) return;
+    const { node, name } = state.csel;
+    const key = node + ":" + name;
+    if (!force && ctFormLoaded === key) return;
+    ctFormLoaded = key;
+    const msg = $("#XM_CTSE_MSG");
+    const form = $("#XM_CTSE_FORM");
+    try {
+        const d = await api(`${nb(node)}/containers/${enc(name)}`);
+        if (!state.csel || state.csel.name !== name) return;
+        const c = d.config;
+        form.querySelectorAll("input, select, textarea, button").forEach((el) => (el.disabled = !d.editable));
+        msg.hidden = d.editable;
+        msg.textContent = d.editable ? "" : (d.state === "creating"
+            ? "A konténer még készül, utána szerkeszthető."
+            : "Ez a konténer a XenMox egy régebbi verziójában készült, a beállításai nem szerkeszthetők.");
+        $("#ctse-image").value = d.image || "";
+        $("#ctse-restart").value = c ? c.restart : "unless-stopped";
+        $("#ctse-ports").value = c ? c.ports.join("\n") : "";
+        $("#ctse-env").value = c ? c.env.join("\n") : "";
+        $("#ctse-volumes").value = c ? c.volumes.join("\n") : "";
+        $("#ctse-memory").value = c && c.memory != null ? c.memory : "";
+        $("#ctse-cpus").value = c && c.cpus != null ? c.cpus : "";
+    } catch (err) {
+        msg.hidden = false;
+        msg.textContent = err.message;
+    }
+}
+
+$("#XM_CTSE_FORM").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (!state.csel) return;
+    const { node, name } = state.csel;
+    if (!confirm(`A mentés újra létrehozza a(z) "${name}" konténert. Folytatod?`)) return;
+    const btn = $("#XM_CTSE_SAVE");
+    btn.disabled = true;
+    try {
+        await api(`${nb(node)}/containers/${enc(name)}`, jsonOpts("PUT", {
+            image: $("#ctse-image").value.trim(),
+            restart: $("#ctse-restart").value,
+            ports: lines("#ctse-ports"),
+            env: lines("#ctse-env"),
+            volumes: lines("#ctse-volumes"),
+            memory: $("#ctse-memory").value,
+            cpus: $("#ctse-cpus").value,
+        }));
+        ctFormLoaded = null;
+        await refreshAll();
+        setTab("#XM_CT_TABS", "logs", () => loadLogs());
+        showAlert("A módosítás elindult: a konténer újra létrejön, az állapota a listában frissül.");
+    } catch (err) {
+        showAlert(err.message);
+    } finally {
+        btn.disabled = false;
+    }
+});
+
 function syncContainer() {
     if (!state.csel) return;
     const { node, name } = state.csel;
@@ -779,7 +1317,13 @@ function syncContainer() {
     $("#XM_CT_STOP").disabled = cls !== "running";
     $("#XM_CT_RESTART").disabled = cls !== "running";
     $("#XM_CT_DELETE").disabled = cls === "creating";
-    loadLogs();
+
+    const note = $("#XM_CT_NOTE");
+    note.hidden = !c.note;
+    note.textContent = c.note || "";
+
+    if (activeTab("#XM_CT_TABS") === "logs") loadLogs();
+    if (activeTab("#XM_CT_TABS") === "settings" && ctFormLoaded !== node + ":" + name && cls !== "creating") loadCtForm(false);
 }
 
 async function ctAction(act) {
@@ -790,7 +1334,7 @@ async function ctAction(act) {
             method: act === "delete" ? "DELETE" : "POST",
         });
     } catch (e) {
-        alert(e.message);
+        showAlert(e.message);
     }
     await refreshAll();
 }
@@ -804,7 +1348,13 @@ $("#XM_CT_DELETE").addEventListener("click", async () => {
 });
 $("#XM_CT_REFRESH").addEventListener("click", loadLogs);
 
+// Élő statisztikák: csak a nyitott Stats fülön frissül
+function tickStats() {
+    if (locked) return;
+    if (state.vsel && activeTab("#XM_VM_TABS") === "stats") loadVmStats();
+    if (state.csel && activeTab("#XM_CT_TABS") === "stats") loadCtStats();
+}
+
 // ---------- Indulás ----------
 showTab(0);
-refreshAll().then(() => showPane("XM_PANE_VMS")).catch(console.error);
-setInterval(() => refreshAll().catch(() => {}), 5000);
+init();

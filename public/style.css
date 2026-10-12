@@ -5,7 +5,7 @@
 }
 
 :root {
-    --xm-header-h: 60px;
+    --xm-header-h: 160px; /* a 140px magas logóhoz */
     --xm-grey: rgb(78, 77, 77);
 }
 
@@ -468,4 +468,107 @@ body {
 #XM_ISO_PROGRESS {
     width: 100%;
     margin-bottom: 12px;
+}
+
+/* ---------- Bejelentkezés ---------- */
+.XM_USERBOX {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: white;
+    font-size: 14px;
+}
+
+.XM_AUTH {
+    position: fixed;
+    inset: var(--xm-header-h) 0 0 0;
+    background: #f2f2f2;
+    z-index: 100;
+    overflow: auto;
+}
+
+.XM_AUTH_BOX {
+    width: 420px;
+    margin-top: 60px;
+}
+
+.XM_FULLROW {
+    grid-column: 1 / -1;
+}
+
+.XM_ERR {
+    color: #c62828;
+    font-size: 13px;
+}
+
+/* ---------- Részletek: fülek, statisztikák ---------- */
+.XM_WIDE {
+    width: 820px;
+}
+
+.XM_TOOLBAR {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 8px 12px;
+    border-bottom: 1px solid #ccc;
+}
+
+.XM_TABS_BODY {
+    min-height: 260px;
+}
+
+.XM_TABPANE fieldset {
+    border: none;
+}
+
+.XM_CARDS {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 12px;
+}
+
+.XM_CARD {
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    padding: 10px 12px;
+}
+
+.XM_CARD h5 {
+    margin-bottom: 6px;
+    color: var(--xm-grey);
+}
+
+.XM_CARD small {
+    display: block;
+    color: #666;
+    margin-top: 4px;
+    word-break: break-word;
+}
+
+.XM_BIG {
+    font-size: 20px;
+    font-weight: bold;
+}
+
+.XM_BAR {
+    height: 10px;
+    margin: 6px 0 2px;
+    background: #e3e3e3;
+    border-radius: 5px;
+    overflow: hidden;
+}
+
+.XM_BAR_FILL {
+    height: 100%;
+    background: #2e7d32;
+}
+
+.XM_BAR_FILL.warn {
+    background: #ef9a00;
+}
+
+.XM_BAR_FILL.crit {
+    background: #c62828;
 }

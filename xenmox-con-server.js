@@ -1,73 +1,96 @@
 "use strict";
 /**
  * xenmox-con-server – a node ügynök.
- * Nincs webes felülete: egy másik gépen futó XenMox főszerver adja hozzá
- * (Datacenter settings → Add node), és innentől innen irányítja a VM-eket.
+ * Nincs webes felülete: egy XenMox főszerver adja hozzá (Datacenter settings → Add node),
+ * és innentől onnan irányítja a VM-eket és konténereket.
+ *
+ * Első használat előtt felhasználót kell beállítani:   npm run con-server -- --setup
+ * Amíg nincs beállítva felhasználó, a szerver minden kérést visszautasít.
  *
  * Beállítások (környezeti változók):
  *   XENMOX_PORT   port (alapból 3001)
- *   XENMOX_TOKEN  a hozzáférési token (alapból a data/con-server.json-ban generált)
  *   XENMOX_DATA   adatmappa (alapból ./data)
+ *   XENMOX_USER, XENMOX_PASS   csak a --setup nem interaktív használatához
  */
 const express = require("express");
-const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const { createNode } = require("./lib/node");
+const { AuthStore, createLimiter, runSetup } = require("./lib/auth");
 
 const DATA_DIR = path.resolve(process.env.XENMOX_DATA || path.join(__dirname, "data"));
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
-// ---------- Token ----------
-const CONF_FILE = path.join(DATA_DIR, "con-server.json");
-let conf = fs.existsSync(CONF_FILE) ? JSON.parse(fs.readFileSync(CONF_FILE, "utf8")) : {};
-if (!conf.token) {
-    conf.token = crypto.randomBytes(24).toString("hex");
-    fs.writeFileSync(CONF_FILE, JSON.stringify(conf, null, 2), { mode: 0o600 });
-}
-const TOKEN = process.env.XENMOX_TOKEN || conf.token;
-const PORT = Number(process.env.XENMOX_PORT || conf.port || 3001);
+const auth = new AuthStore(path.join(DATA_DIR, "auth.json"));
+const PORT = Number(process.env.XENMOX_PORT || 3001);
 
-function safeEqual(a, b) {
-    const A = Buffer.from(a);
-    const B = Buffer.from(b);
-    return A.length === B.length && crypto.timingSafeEqual(A, B);
+if (process.argv.includes("--setup")) {
+    runSetup(auth, "xenmox-con-server").then(() => process.exit(0));
+} else {
+    start();
 }
 
-function authOk(req) {
-    const h = req.headers.authorization || "";
-    return h.startsWith("Bearer ") && safeEqual(h.slice(7), TOKEN);
-}
+function start() {
+    const limiter = createLimiter({ max: 10, windowMs: 60000, lockMs: 60000 });
 
-function requireToken(req, res, next) {
-    if (authOk(req)) return next();
-    res.status(401).json({ error: "Hibás vagy hiányzó token" });
-}
-
-// ---------- Szerver ----------
-const node = createNode({ dataDir: DATA_DIR });
-const app = express();
-app.use("/api", requireToken, node.router);
-
-const server = app.listen(PORT, () => {
-    console.log("xenmox-con-server fut");
-    console.log(`  port : ${PORT}`);
-    console.log(`  token: ${TOKEN}`);
-    console.log("Add hozzá a főszerver webes felületén: Datacenter settings → Add node");
-});
-
-server.on("upgrade", (req, socket, head) => {
-    const m = /^\/api\/vms\/(\d+)\/vnc$/.exec(req.url.split("?")[0]);
-    if (!m || !authOk(req)) {
-        socket.write(`HTTP/1.1 ${m ? 401 : 404} Error\r\n\r\n`);
-        return socket.destroy();
+    // null, ha a kérés hitelesített; különben {status, msg}
+    async function authenticate(req) {
+        auth.refresh();
+        if (!auth.configured) {
+            return { status: 503, msg: "A con-server még nincs beállítva (futtasd rajta: npm run con-server -- --setup)", setup: true };
+        }
+        const ip = req.socket.remoteAddress || "";
+        if (limiter.blocked(ip)) return { status: 429, msg: "Túl sok sikertelen próbálkozás, próbáld újra később" };
+        if (await auth.verifyBasic(req.headers.authorization)) {
+            limiter.ok(ip);
+            return null;
+        }
+        limiter.fail(ip);
+        return { status: 401, msg: "Hibás vagy hiányzó felhasználónév/jelszó" };
     }
-    node.handleVncUpgrade(req, socket, head, Number(m[1]));
-});
 
-for (const sig of ["SIGINT", "SIGTERM"]) {
-    process.on(sig, () => {
-        node.stopAll();
-        process.exit(0);
+    const node = createNode({ dataDir: DATA_DIR });
+    const app = express();
+    app.disable("x-powered-by");
+
+    app.use("/api", async (req, res, next) => {
+        const fail = await authenticate(req);
+        if (fail) return res.status(fail.status).json({ error: fail.msg, setup: fail.setup });
+        next();
     });
+    app.use("/api", node.router);
+    app.use((req, res) => res.status(404).json({ error: "Nincs ilyen útvonal" }));
+
+    const server = app.listen(PORT, () => {
+        console.log("xenmox-con-server fut");
+        console.log(`  port: ${PORT}`);
+        if (auth.configured) {
+            console.log(`  felhasználó: ${auth.username}`);
+            console.log("Add hozzá a főszerver webes felületén: Datacenter settings → Add node");
+        } else {
+            console.log("  ZÁROLVA: még nincs felhasználó beállítva, minden kérés elutasításra kerül.");
+            console.log("  Állítsd be (egyszer):  npm run con-server -- --setup");
+        }
+    });
+
+    server.on("upgrade", async (req, socket, head) => {
+        const m = /^\/api\/vms\/(\d+)\/vnc$/.exec(req.url.split("?")[0]);
+        if (!m) {
+            socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
+            return socket.destroy();
+        }
+        const fail = await authenticate(req);
+        if (fail) {
+            socket.write(`HTTP/1.1 ${fail.status} Error\r\n\r\n`);
+            return socket.destroy();
+        }
+        node.handleVncUpgrade(req, socket, head, Number(m[1]));
+    });
+
+    for (const sig of ["SIGINT", "SIGTERM"]) {
+        process.on(sig, () => {
+            node.stopAll();
+            process.exit(0);
+        });
+    }
 }

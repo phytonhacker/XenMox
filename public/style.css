@@ -5,7 +5,7 @@
 }
 
 :root {
-    --xm-header-h: 160px; /* a 140px magas logóhoz */
+    --xm-header-h: 75px; /* for the 140px tall logo */
     --xm-grey: rgb(78, 77, 77);
 }
 
@@ -73,7 +73,7 @@ body {
     font-size: 13px;
 }
 
-/* ---------- Fa-nézet ---------- */
+/* ---------- Tree view ---------- */
 .XM_TREE {
     font-size: 14px;
     padding: 8px;
@@ -131,7 +131,7 @@ body {
     color: var(--xm-grey);
 }
 
-/* ---------- Ablak ---------- */
+/* ---------- Window ---------- */
 .XM_CREATEVM_WINDOW {
     width: 640px;
     max-width: 100%;
@@ -223,7 +223,7 @@ body {
     border-top: 1px solid #ccc;
 }
 
-/* ---------- Gombok ---------- */
+/* ---------- Buttons ---------- */
 .XM_BTN {
     padding: 6px 14px;
     border: 1px solid var(--xm-grey);
@@ -252,7 +252,7 @@ body {
     background-color: #333;
 }
 
-/* ---------- Listák (VM, ISO) ---------- */
+/* ---------- Lists (VM, ISO) ---------- */
 .XM_LIST {
     list-style: none;
 }
@@ -280,7 +280,7 @@ body {
     color: #999 !important;
 }
 
-/* ---------- Sidebar VM-ek ---------- */
+/* ---------- Sidebar VMs ---------- */
 .XM_TREE .XM_TREE_VMS {
     margin-left: 18px;
     margin-top: 4px;
@@ -301,7 +301,7 @@ body {
     color: #999;
 }
 
-/* ---------- Konzol ---------- */
+/* ---------- Console ---------- */
 .XM_CONSOLE_PANE {
     display: flex;
     flex-direction: column;
@@ -350,7 +350,7 @@ body {
     padding: 16px;
 }
 
-/* ---------- Docker konténerek ---------- */
+/* ---------- Docker containers ---------- */
 .XM_TREE .XM_TREE_VMS li.creating i {
     color: #ef9a00;
 }
@@ -408,7 +408,7 @@ body {
     padding-top: 6px;
 }
 
-/* ---------- Node állapot, Datacenter pane ---------- */
+/* ---------- Node status, Datacenter pane ---------- */
 .XM_DOT {
     display: inline-block;
     width: 8px;
@@ -470,7 +470,7 @@ body {
     margin-bottom: 12px;
 }
 
-/* ---------- Bejelentkezés ---------- */
+/* ---------- Login ---------- */
 .XM_USERBOX {
     margin-left: auto;
     display: flex;
@@ -502,7 +502,7 @@ body {
     font-size: 13px;
 }
 
-/* ---------- Részletek: fülek, statisztikák ---------- */
+/* ---------- Details: tabs, statistics ---------- */
 .XM_WIDE {
     width: 820px;
 }

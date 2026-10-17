@@ -1,4 +1,4 @@
-// ---------- Segédek ----------
+// ---------- Helpers ----------
 const $ = (sel, root = document) => root.querySelector(sel);
 const enc = encodeURIComponent;
 
@@ -6,10 +6,10 @@ async function api(url, options = {}) {
     const res = await fetch(url, options);
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-        // lejárt munkamenet / még nincs beállított felhasználó: vissza a bejelentkezéshez
+        // expired session / no user configured yet: back to login
         if (res.status === 401 && data.login) showAuth("login");
         if (res.status === 403 && data.setup) showAuth("setup");
-        const err = new Error(data.error || `Hiba (${res.status})`);
+        const err = new Error(data.error || `Error (${res.status})`);
         err.status = res.status;
         throw err;
     }
@@ -50,7 +50,7 @@ function esc(s) {
     return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-// Egy-egy kijelzős sáv: százalék + felirat
+// A single gauge bar: percentage + label
 function bar(pct, text) {
     const p = Math.max(0, Math.min(100, Number(pct) || 0));
     const cls = p > 90 ? "crit" : p > 75 ? "warn" : "";
@@ -63,40 +63,40 @@ function showAlert(msg) {
     alert(msg);
 }
 
-// ---------- Állapot ----------
-// Egy node kulcsa: "<datacenter id>/<node id>" (a saját datacenter id-ja: "local")
+// ---------- State ----------
+// The key of a node: "<datacenter id>/<node id>" (the own datacenter's id: "local")
 const state = {
     dcs: [],            // [{id, name, remote, online, nodes:[...]}]
-    nodes: {},          // kulcs -> {key, id, name, online, dcId, dcName, remoteDc}
-    vms: {},            // kulcs -> [vm]
-    isos: {},           // kulcs -> [iso]
-    containers: {},     // kulcs -> {list: [konténer], error: szöveg|null}
-    csel: null,         // kiválasztott konténer: {node, name}
-    vsel: null,         // VM részletek: {node, id}
-    node: "local/local", // a menüben kiválasztott node
-    sel: null,          // konzolhoz kiválasztott VM: {node, id}
-    open: new Set(["dc:local", "local/local"]), // nyitott ágak a fában
+    nodes: {},          // key -> {key, id, name, online, dcId, dcName, remoteDc}
+    vms: {},            // key -> [vm]
+    isos: {},           // key -> [iso]
+    containers: {},     // key -> {list: [container], error: text|null}
+    csel: null,         // selected container: {node, name}
+    vsel: null,         // VM details: {node, id}
+    node: "local/local", // the node selected in the menu
+    sel: null,          // VM selected for the console: {node, id}
+    open: new Set(["dc:local", "local/local"]), // open branches in the tree
 };
 
 const nodeByKey = (k) => state.nodes[k];
 const ownDc = () => state.dcs.find((d) => !d.remote);
 
-// Az adott node API-jának alap URL-je: saját datacenterben /api/nodes/<id>,
-// összekötött datacenterben /api/dcs/<dc>/nodes/<id>
+// Base URL of the given node's API: in the own datacenter /api/nodes/<id>,
+// in a linked datacenter /api/dcs/<dc>/nodes/<id>
 function nb(key) {
     const n = nodeByKey(key);
-    if (!n) throw new Error("Ismeretlen node");
+    if (!n) throw new Error("Unknown node");
     return n.remoteDc ? `/api/dcs/${enc(n.dcId)}/nodes/${enc(n.id)}` : `/api/nodes/${enc(n.id)}`;
 }
 
-// Megjelenített név: távoli datacenternél "Datacenter / node"
+// Display name: for a remote datacenter "Datacenter / node"
 function nodeLabel(key) {
     const n = nodeByKey(key);
     if (!n) return key;
     return n.remoteDc ? `${n.dcName} / ${n.name}` : n.name;
 }
 
-// ---------- Bejelentkezés ----------
+// ---------- Login ----------
 let locked = true;
 let timers = [];
 let authMode = "login";
@@ -116,16 +116,16 @@ function showAuth(mode) {
     const setup = mode === "setup";
     $("#XM_AUTH").hidden = false;
     $("#XM_AUTH_TITLE").innerHTML = setup
-        ? '<i class="fa-solid fa-shield-halved"></i> Első beállítás'
-        : '<i class="fa-solid fa-lock"></i> Bejelentkezés';
+        ? '<i class="fa-solid fa-shield-halved"></i> First-time setup'
+        : '<i class="fa-solid fa-lock"></i> Login';
     $("#XM_AUTH_INFO").textContent = setup
-        ? "Hozd létre az adminisztrátori felhasználót. Amíg ez nincs beállítva, a szerver semmit nem enged. (A felhasználónév 3–32 karakter, a jelszó legalább 8.)"
-        : "Jelentkezz be a XenMox használatához.";
+        ? "Create the administrator user. Until this is set up, the server allows nothing. (The username is 3–32 characters, the password is at least 8.)"
+        : "Log in to use XenMox.";
     $("#XM_AUTH_PASS2").hidden = !setup;
     $("#XM_AUTH_PASS2").required = setup;
     $("#XM_AUTH_P2L").hidden = !setup;
     $("#XM_AUTH_PASS").autocomplete = setup ? "new-password" : "current-password";
-    $("#XM_AUTH_BTN").textContent = setup ? "Létrehozás" : "Bejelentkezés";
+    $("#XM_AUTH_BTN").textContent = setup ? "Create" : "Login";
     $("#XM_AUTH_ERR").hidden = true;
     $("#XM_AUTH_PASS").value = "";
     $("#XM_AUTH_PASS2").value = "";
@@ -141,7 +141,7 @@ $("#XM_AUTH_FORM").addEventListener("submit", async (e) => {
     e.preventDefault();
     const username = $("#XM_AUTH_USER").value.trim();
     const password = $("#XM_AUTH_PASS").value;
-    if (authMode === "setup" && password !== $("#XM_AUTH_PASS2").value) return authError("A két jelszó nem egyezik");
+    if (authMode === "setup" && password !== $("#XM_AUTH_PASS2").value) return authError("The two passwords do not match");
     const btn = $("#XM_AUTH_BTN");
     btn.disabled = true;
     try {
@@ -149,7 +149,7 @@ $("#XM_AUTH_FORM").addEventListener("submit", async (e) => {
         $("#XM_AUTH_FORM").reset();
         await enter(r.username);
     } catch (err) {
-        if (err.status === 409) return init(); // közben valaki más már beállította
+        if (err.status === 409) return init(); // someone else configured it in the meantime
         authError(err.message);
     } finally {
         btn.disabled = false;
@@ -184,7 +184,7 @@ async function init() {
         await enter(st.username);
     } catch (e) {
         showAuth("login");
-        authError("A szerver nem érhető el");
+        authError("The server is unreachable");
     }
 }
 
@@ -203,18 +203,18 @@ $("#XM_PW_OPEN").addEventListener("click", () => {
 $("#XM_PW_FORM").addEventListener("submit", async (e) => {
     e.preventDefault();
     const pw = $("#XM_PW_NEW").value;
-    if (pw !== $("#XM_PW_NEW2").value) return showAlert("A két új jelszó nem egyezik");
+    if (pw !== $("#XM_PW_NEW2").value) return showAlert("The two new passwords do not match");
     try {
         await api("/api/auth/password", jsonOpts("POST", { current: $("#XM_PW_CUR").value, password: pw }));
         $("#XM_PW_FORM").reset();
-        showAlert("A jelszó megváltozott. A többi bejelentkezett munkamenet kijelentkeztetve.");
+        showAlert("The password has been changed. The other logged-in sessions have been logged out.");
         showPane("XM_PANE_VMS");
     } catch (err) {
         showAlert(err.message);
     }
 });
 
-// ---------- Adatok betöltése ----------
+// ---------- Loading data ----------
 async function refreshAll() {
     const data = await api("/api/dcs");
     state.dcs = data.dcs;
@@ -287,7 +287,7 @@ function renderNodeBranch(n) {
         const selected = [state.sel, state.vsel].some((s) => s && s.node === n.key && s.id === v.id);
         return `
         <li class="${v.status}${selected ? " selected" : ""}" data-vm="${v.id}" data-node="${esc(n.key)}"
-            title="Kattintás: konzol, dupla kattintás: statisztika és beállítások">
+            title="Click: console, double click: stats and settings">
             <i class="fa-solid fa-desktop"></i> ${v.id} (${esc(v.name)})
         </li>`;
     }).join("");
@@ -295,7 +295,7 @@ function renderNodeBranch(n) {
     const ctItems = ((state.containers[n.key] || {}).list || []).map((c) => `
         <li class="${ctClass(c)}${state.csel && state.csel.node === n.key && state.csel.name === c.name ? " selected" : ""}"
             data-ct="${esc(c.name)}" data-node="${esc(n.key)}"
-            title="Kattintás: napló, dupla kattintás: statisztika és beállítások">
+            title="Click: logs, double click: stats and settings">
             <i class="fa-brands fa-docker"></i> ${esc(c.name)}
         </li>`).join("");
 
@@ -311,7 +311,7 @@ function renderNodeBranch(n) {
                 <li data-view="XM_PANE_CCREATE" data-node="${esc(n.key)}"><i class="fa-brands fa-docker"></i> Create container</li>
                 <li data-view="XM_PANE_SETTINGS" data-node="${esc(n.key)}"><i class="fa-solid fa-gear"></i> Settings (ISO)</li>
             </ul>
-            <ul class="XM_TREE_VMS">${vmItems}${ctItems}</ul>` : `<ul><li class="XM_OFFLINE_NOTE">A node nem érhető el</li></ul>`}
+            <ul class="XM_TREE_VMS">${vmItems}${ctItems}</ul>` : `<ul><li class="XM_OFFLINE_NOTE">The node is unreachable</li></ul>`}
         </details>`;
 }
 
@@ -320,11 +320,11 @@ function renderTree() {
         const settings = dc.remote ? "" : `<ul><li data-view="XM_PANE_DC"><i class="fa-solid fa-gear"></i> Datacenter settings</li></ul>`;
         const body = dc.online
             ? dc.nodes.map((n) => renderNodeBranch(nodeByKey(`${dc.id}/${n.id}`))).join("")
-            : `<ul><li class="XM_OFFLINE_NOTE">${esc(dc.error || "A datacenter nem érhető el")}</li></ul>`;
+            : `<ul><li class="XM_OFFLINE_NOTE">${esc(dc.error || "The datacenter is unreachable")}</li></ul>`;
         return `
             <details data-dc="${esc(dc.id)}" class="XM_TREE_DC" ${state.open.has("dc:" + dc.id) ? "open" : ""}>
                 <summary><i class="fa-solid fa-building"></i> Datacenter (${esc(dc.name)})
-                    ${dc.remote ? `<span class="XM_DOT ${dc.online ? "online" : "offline"}" title="összekötött datacenter"></span>` : ""}
+                    ${dc.remote ? `<span class="XM_DOT ${dc.online ? "online" : "offline"}" title="linked datacenter"></span>` : ""}
                 </summary>
                 ${settings}
                 ${body}
@@ -332,7 +332,7 @@ function renderTree() {
     }).join("");
 }
 
-// A nyitott/zárt állapot megőrzése újrarajzoláskor (a toggle nem buborékol, ezért capture)
+// Preserve the open/closed state on redraw (the toggle does not bubble, hence capture)
 $("#XM_TREE_ROOT").addEventListener("toggle", (e) => {
     const ds = e.target.dataset || {};
     const key = ds.dc !== undefined ? "dc:" + ds.dc : ds.node;
@@ -341,8 +341,8 @@ $("#XM_TREE_ROOT").addEventListener("toggle", (e) => {
     else state.open.delete(key);
 }, true);
 
-// Egy kattintás: konzol / napló; dupla kattintás: statisztika + beállítások.
-// A rövid késleltetés kell, hogy a dupla kattintás ne nyissa meg előbb a konzolt.
+// One click: console / logs; double click: stats + settings.
+// The short delay is needed so that a double click does not open the console first.
 let clickTimer = null;
 
 $("#XM_TREE_ROOT").addEventListener("click", (e) => {
@@ -380,7 +380,7 @@ $("#XM_TREE_ROOT").addEventListener("dblclick", (e) => {
     }
 });
 
-// ---------- Nézetváltás ----------
+// ---------- View switching ----------
 function showPane(id) {
     document.querySelectorAll(".XM_VIEW_PANE").forEach((p) => (p.hidden = p.id !== id));
     document.querySelectorAll(".XM_PANE_NODE").forEach((el) => (el.textContent = nodeLabel(state.node)));
@@ -409,7 +409,7 @@ function showPane(id) {
     }
 }
 
-// Fülek (Stats / Settings / Logs) kezelése egy panelen belül
+// Handling tabs (Stats / Settings / Logs) within a panel
 function bindTabs(navSel, onChange) {
     const nav = $(navSel);
     nav.addEventListener("click", (e) => {
@@ -443,12 +443,12 @@ function renderDcPane() {
         <li>
             <span>
                 <i class="fa-solid fa-server"></i> ${esc(n.name)}
-                <small>${n.local ? "helyi" : esc(n.host) + ":" + n.port}</small>
+                <small>${n.local ? "local" : esc(n.host) + ":" + n.port}</small>
                 <small class="${n.online ? "XM_STATUS_running" : "XM_STATUS_stopped"}">${n.online ? "online" : "offline"}</small>
             </span>
             <span>
-                <button type="button" class="XM_BTN" data-node-act="rename" data-nid="local/${esc(n.id)}" title="Átnevezés"><i class="fa-solid fa-pen"></i></button>
-                ${n.local ? "" : `<button type="button" class="XM_BTN" data-node-act="remove" data-nid="local/${esc(n.id)}" title="Eltávolítás"><i class="fa-solid fa-trash"></i></button>`}
+                <button type="button" class="XM_BTN" data-node-act="rename" data-nid="local/${esc(n.id)}" title="Rename"><i class="fa-solid fa-pen"></i></button>
+                ${n.local ? "" : `<button type="button" class="XM_BTN" data-node-act="remove" data-nid="local/${esc(n.id)}" title="Remove"><i class="fa-solid fa-trash"></i></button>`}
             </span>
         </li>`).join("");
 
@@ -462,9 +462,9 @@ function renderDcPane() {
                     <small class="${d.online ? "XM_STATUS_running" : "XM_STATUS_stopped"}">${d.online ? "online" : "offline"}</small>
                     ${d.error ? `<small>${esc(d.error)}</small>` : ""}
                 </span>
-                <button type="button" class="XM_BTN" data-dc-act="unlink" data-did="${esc(d.id)}" title="Összekötés megszüntetése"><i class="fa-solid fa-link-slash"></i></button>
+                <button type="button" class="XM_BTN" data-dc-act="unlink" data-did="${esc(d.id)}" title="Unlink"><i class="fa-solid fa-link-slash"></i></button>
             </li>`).join("")
-        : "<li>Még nincs összekötött datacenter.</li>";
+        : "<li>No linked datacenter yet.</li>";
 }
 
 async function refreshFed() {
@@ -490,10 +490,10 @@ $("#XM_DC_NODES").addEventListener("click", async (e) => {
     const n = nodeByKey(key);
     try {
         if (btn.dataset.nodeAct === "rename") {
-            const name = prompt("Új név a node-nak:", n.name);
+            const name = prompt("New name for the node:", n.name);
             if (name === null || name.trim() === n.name) return;
             await api(nb(key), jsonOpts("PATCH", { name: name.trim() }));
-        } else if (confirm(`Eltávolítod a(z) "${n.name}" node-ot? A VM-ek a node-on megmaradnak, csak a kapcsolat szűnik meg.`)) {
+        } else if (confirm(`Remove the "${n.name}" node? The VMs remain on the node, only the connection is removed.`)) {
             await api(nb(key), { method: "DELETE" });
             if (state.node === key) state.node = "local/local";
         } else {
@@ -528,7 +528,7 @@ $("#XM_ADDNODE_FORM").addEventListener("submit", async (e) => {
     }
 });
 
-// Másik XenMox főszerver datacenterének összekötése
+// Linking another XenMox main server's datacenter
 $("#XM_LINKDC_FORM").addEventListener("submit", async (e) => {
     e.preventDefault();
     const btn = e.submitter || e.target.querySelector("button[type=submit]");
@@ -554,7 +554,7 @@ $("#XM_DC_LINKS").addEventListener("click", async (e) => {
     const btn = e.target.closest("[data-dc-act]");
     if (!btn) return;
     const dc = state.dcs.find((d) => d.id === btn.dataset.did);
-    if (!dc || !confirm(`Megszünteted az összekötést a(z) "${dc.name}" datacenterrel? A VM-ek a másik szerveren megmaradnak.`)) return;
+    if (!dc || !confirm(`Unlink from the "${dc.name}" datacenter? The VMs remain on the other server.`)) return;
     try {
         await api(`/api/dcs/${enc(dc.id)}`, { method: "DELETE" });
         if (nodeByKey(state.node) && nodeByKey(state.node).dcId === dc.id) state.node = "local/local";
@@ -565,7 +565,7 @@ $("#XM_DC_LINKS").addEventListener("click", async (e) => {
 });
 
 $("#XM_FED_REGEN").addEventListener("click", async () => {
-    if (!confirm("Új tokent generálsz. Az eddig összekötött szerverek elveszítik a hozzáférést, amíg meg nem adod nekik az újat. Folytatod?")) return;
+    if (!confirm("You are generating a new token. Previously linked servers lose access until you give them the new one. Continue?")) return;
     try {
         $("#XM_FED_TOKEN").value = (await api("/api/federation/regenerate", { method: "POST" })).token;
     } catch (err) {
@@ -573,7 +573,7 @@ $("#XM_FED_REGEN").addEventListener("click", async () => {
     }
 });
 
-// ---------- VM létrehozó ablak ----------
+// ---------- VM creation window ----------
 const tabs = document.querySelectorAll(".XM_CVM_TAB:not([data-tab])");
 const panels = document.querySelectorAll("#XM_PANE_CREATE .XM_CVM_PANEL");
 const backBtn = $("#cvm-back");
@@ -591,7 +591,7 @@ function showTab(i) {
 tabs.forEach((t, n) => t.addEventListener("click", () => showTab(n)));
 backBtn.addEventListener("click", () => showTab(current - 1));
 
-// force: a menüből választott node (az időzített frissítés a felhasználó választását megtartja)
+// force: the node selected from the menu (the timed refresh keeps the user's choice)
 function renderNodeSelect(force) {
     const sel = $("#cvm-node");
     const prev = force || sel.value || state.node;
@@ -626,7 +626,7 @@ nextBtn.addEventListener("click", async () => {
         $("#cvm-id").value = body.id + 1;
         $("#cvm-name").value = "";
         showTab(0);
-        showAlert(`A VM létrejött a(z) ${nodeLabel(node)} node-on.`);
+        showAlert(`The VM was created on ${nodeLabel(node)}.`);
     } catch (e) {
         showAlert(e.message);
     } finally {
@@ -634,7 +634,7 @@ nextBtn.addEventListener("click", async () => {
     }
 });
 
-// ---------- ISO-k (kiválasztott node) ----------
+// ---------- ISOs (selected node) ----------
 function renderIsoSelect() {
     const key = $("#cvm-node").value || state.node;
     const isos = state.isos[key] || [];
@@ -653,12 +653,12 @@ function renderIsoList() {
                 <span><i class="fa-solid fa-compact-disc"></i> ${esc(i.name)} <small>(${fmtSize(i.size)})</small></span>
                 <button type="button" class="XM_BTN" data-del-iso="${esc(i.name)}"><i class="fa-solid fa-trash"></i></button>
             </li>`).join("")
-        : "<li>Még nincs feltöltött ISO ezen a node-on.</li>";
+        : "<li>No ISO uploaded on this node yet.</li>";
 }
 
 $("#XM_ISO_LIST").addEventListener("click", async (e) => {
     const btn = e.target.closest("[data-del-iso]");
-    if (!btn || !confirm("Biztosan törlöd az ISO-t?")) return;
+    if (!btn || !confirm("Are you sure you want to delete the ISO?")) return;
     try {
         await api(`${nb(state.node)}/isos/${enc(btn.dataset.delIso)}`, { method: "DELETE" });
         refreshIsos(state.node);
@@ -670,7 +670,7 @@ $("#XM_ISO_LIST").addEventListener("click", async (e) => {
 $("#XM_ISO_FORM").addEventListener("submit", (e) => {
     e.preventDefault();
     const file = $("#XM_ISO_FILE").files[0];
-    if (!file) return showAlert("Válassz egy .iso fájlt!");
+    if (!file) return showAlert("Choose an .iso file!");
 
     const key = state.node;
     const fd = new FormData();
@@ -690,7 +690,7 @@ $("#XM_ISO_FORM").addEventListener("submit", (e) => {
             $("#XM_ISO_FILE").value = "";
             refreshIsos(key);
         } else {
-            let msg = "Feltöltési hiba";
+            let msg = "Upload error";
             try { msg = JSON.parse(xhr.responseText).error || msg; } catch {}
             if (xhr.status === 401) showAuth("login");
             showAlert(msg);
@@ -698,24 +698,24 @@ $("#XM_ISO_FORM").addEventListener("submit", (e) => {
     };
     xhr.onerror = () => {
         bar.hidden = true;
-        showAlert("Hálózati hiba a feltöltés közben");
+        showAlert("Network error during upload");
     };
     xhr.open("POST", `${nb(key)}/isos`);
     xhr.send(fd);
 });
 
-// ---------- VM lista (kiválasztott node) ----------
+// ---------- VM list (selected node) ----------
 function renderVmList() {
     const vms = state.vms[state.node] || [];
     $("#XM_VM_LIST").innerHTML = vms.length
         ? vms.map((v) => `
-            <li data-vmrow="${v.id}" title="Dupla kattintás: statisztika és beállítások">
+            <li data-vmrow="${v.id}" title="Double click: stats and settings">
                 <span>
                     <i class="fa-solid fa-desktop"></i> ${v.id} – ${esc(v.name)}
                     <small class="XM_STATUS_${v.status}">${v.status}</small>
                 </span>
                 <span>
-                    <button type="button" class="XM_BTN" data-act="details" data-id="${v.id}" title="Statisztika és beállítások"><i class="fa-solid fa-chart-line"></i></button>
+                    <button type="button" class="XM_BTN" data-act="details" data-id="${v.id}" title="Stats and settings"><i class="fa-solid fa-chart-line"></i></button>
                     ${v.status === "running"
                         ? `<button type="button" class="XM_BTN" data-act="console" data-id="${v.id}" title="Konzol"><i class="fa-solid fa-display"></i></button>
                            <button type="button" class="XM_BTN" data-act="stop" data-id="${v.id}"><i class="fa-solid fa-stop"></i></button>`
@@ -723,7 +723,7 @@ function renderVmList() {
                            <button type="button" class="XM_BTN" data-act="delete" data-id="${v.id}"><i class="fa-solid fa-trash"></i></button>`}
                 </span>
             </li>`).join("")
-        : "<li>Még nincs VM ezen a node-on.</li>";
+        : "<li>No VM on this node yet.</li>";
 }
 
 $("#XM_VM_LIST").addEventListener("dblclick", (e) => {
@@ -738,7 +738,7 @@ $("#XM_VM_LIST").addEventListener("click", async (e) => {
     const { act, id } = btn.dataset;
     if (act === "console") return openConsole(state.node, Number(id));
     if (act === "details") return openVm(state.node, Number(id), "stats");
-    if (act === "delete" && !confirm("Biztosan törlöd a VM-et és a lemezét?")) return;
+    if (act === "delete" && !confirm("Are you sure you want to delete the VM and its disk?")) return;
     try {
         await api(`${nb(state.node)}/vms/${id}` + (act === "delete" ? "" : "/" + act), {
             method: act === "delete" ? "DELETE" : "POST",
@@ -750,10 +750,10 @@ $("#XM_VM_LIST").addEventListener("click", async (e) => {
     }
 });
 
-// ---------- VM részletek: statisztika + beállítások ----------
+// ---------- VM details: stats + settings ----------
 const vmOf = (sel) => sel && (state.vms[sel.node] || []).find((v) => v.id === sel.id);
 let vmStatsBusy = false;
-let vmFormLoaded = null; // melyik VM adataival van kitöltve a beállítások űrlap
+let vmFormLoaded = null; // which VM's data the settings form is filled with
 
 bindTabs("#XM_VM_TABS", (tab) => {
     if (tab === "stats") loadVmStats();
@@ -765,7 +765,7 @@ function openVm(node, id, tab = "stats") {
     state.vsel = { node, id };
     vmFormLoaded = null;
     showPane("XM_PANE_VM");
-    $("#XM_VM_STATS").innerHTML = "<small>Betöltés...</small>";
+    $("#XM_VM_STATS").innerHTML = "<small>Loading...</small>";
     setTab("#XM_VM_TABS", tab, (t) => {
         if (t === "stats") loadVmStats();
         if (t === "settings") loadVmForm(true);
@@ -788,11 +788,11 @@ function syncVm() {
     $("#XM_VM_CONSOLE").disabled = !isRunning;
     $("#XM_VM_EJECT").hidden = !vm.iso;
 
-    // A beállítások csak leállított VM-nél módosíthatók
+    // Settings can only be changed while the VM is stopped
     $("#XM_VMSE_FS").disabled = isRunning;
     const msg = $("#XM_VMSE_MSG");
     msg.hidden = !isRunning;
-    msg.textContent = isRunning ? "A VM fut: a beállítások módosításához állítsd le." : "";
+    msg.textContent = isRunning ? "The VM is running: stop it to change the settings." : "";
     if (activeTab("#XM_VM_TABS") === "settings" && vmFormLoaded !== state.vsel.node + ":" + vm.id) loadVmForm(false);
 }
 
@@ -841,7 +841,7 @@ $("#XM_VMSE_FORM").addEventListener("submit", async (e) => {
         }));
         vmFormLoaded = null;
         await refreshAll();
-        showAlert("A beállítások elmentve.");
+        showAlert("The settings have been saved.");
     } catch (err) {
         showAlert(err.message);
     } finally {
@@ -854,29 +854,29 @@ function renderVmStats(s) {
     const cards = [];
 
     cards.push(card("Status", `<div class="XM_BIG XM_STATUS_${s.status}">${esc(s.status)}</div>
-        <small>${running ? "Uptime: " + fmtDur(s.uptime) : "A VM le van állítva"}</small>`));
+        <small>${running ? "Uptime: " + fmtDur(s.uptime) : "The VM is stopped"}</small>`));
 
     cards.push(card("CPU", s.cpu.percent == null
-        ? `<div class="XM_BIG">–</div><small>${running ? "Nem mérhető" : "Leállítva"} · ${s.cpu.vcpus} vCPU</small>`
+        ? `<div class="XM_BIG">–</div><small>${running ? "Not measurable" : "Stopped"} · ${s.cpu.vcpus} vCPU</small>`
         : `<div class="XM_BIG">${s.cpu.percent.toFixed(1)}%</div>${bar(s.cpu.percent, `${s.cpu.vcpus} vCPU`)}`));
 
     if (s.memory.used == null) {
-        cards.push(card("Memory", `<div class="XM_BIG">${fmtBytes(s.memory.allocated)}</div><small>${running ? "Nem mérhető" : "Lefoglalt memória (leállítva)"}</small>`));
+        cards.push(card("Memory", `<div class="XM_BIG">${fmtBytes(s.memory.allocated)}</div><small>${running ? "Not measurable" : "Allocated memory (stopped)"}</small>`));
     } else {
         const pct = (s.memory.used / s.memory.allocated) * 100;
         cards.push(card("Memory", `<div class="XM_BIG">${fmtBytes(s.memory.used)} / ${fmtBytes(s.memory.allocated)}</div>
             ${bar(pct, s.memory.source === "guest"
-                ? `${pct.toFixed(0)}% – a vendég rendszer jelentése alapján`
-                : `${pct.toFixed(0)}% – a host oldali foglalás (a vendég pontos értékéhez virtio-balloon driver kell a vendégben)`)}`));
+                ? `${pct.toFixed(0)}% – based on the guest system's report`
+                : `${pct.toFixed(0)}% – host-side allocation (for the guest's exact value, a virtio-balloon driver is needed in the guest)`)}`));
     }
 
     const d = s.disk;
     let diskHtml = `<div class="XM_BIG">${fmtBytes(d.virtualSize)}</div>
-        <small>Lemezkép a hoston: ${fmtBytes(d.hostAllocated)} foglalt</small>`;
+        <small>Disk image on the host: ${fmtBytes(d.hostAllocated)} allocated</small>`;
     if (d.guest) {
         diskHtml += d.guest.map((f) => `<div><small>${esc(f.mount)} (${esc(f.type)}): ${fmtBytes(f.used)} / ${fmtBytes(f.total)}</small>${bar((f.used / f.total) * 100, `${((f.used / f.total) * 100).toFixed(0)}%`)}</div>`).join("");
     } else if (running) {
-        diskHtml += "<small>A vendég lemezhasználatához qemu-guest-agent kell a vendégben.</small>";
+        diskHtml += "<small>The guest disk usage requires the qemu-guest-agent in the guest.</small>";
     }
     cards.push(card("Disk", diskHtml));
 
@@ -884,10 +884,10 @@ function renderVmStats(s) {
     if (s.network.ips.length) {
         net += s.network.ips.map((i) => `<div><strong>${esc(i.ip)}</strong> <small style="display:inline">${esc(i.iface)}</small></div>`).join("");
     } else {
-        net += `<small>${running ? "Nincs IP-adat: telepítsd és indítsd el a qemu-guest-agent-et a vendégben. (A beépített hálózatban a vendég címe általában 10.0.2.15.)" : "A VM le van állítva"}</small>`;
+        net += `<small>${running ? "No IP data: install and start the qemu-guest-agent in the guest. (On the built-in network the guest address is usually 10.0.2.15.)" : "The VM is stopped"}</small>`;
     }
     if (s.network.forwards.length) {
-        net += `<small>Port forwards (host:vendég): ${s.network.forwards.map(esc).join(", ")}</small>`;
+        net += `<small>Port forwards (host:guest): ${s.network.forwards.map(esc).join(", ")}</small>`;
     }
     cards.push(card("Network", net));
 
@@ -926,7 +926,7 @@ $("#XM_VM_STOP").addEventListener("click", () => vmDetailAction("stop"));
 $("#XM_VM_CONSOLE").addEventListener("click", () => state.vsel && openConsole(state.vsel.node, state.vsel.id));
 $("#XM_VM_EJECT").addEventListener("click", async () => {
     if (!state.vsel) return;
-    if (!confirm("Kiveszed a telepítő ISO-t? A következő indításnál a VM a lemezéről indul.")) return;
+    if (!confirm("Eject the installer ISO? On the next start the VM will boot from its disk.")) return;
     await vmDetailAction("eject");
 });
 
@@ -957,9 +957,9 @@ async function connectConsole() {
     connecting = true;
     try {
         disconnectConsole();
-        setScreenMsg("Csatlakozás...");
+        setScreenMsg("Connecting...");
         const { default: RFB } = await import("/novnc/core/rfb.js");
-        if (selKey() !== key) return; // közben másik VM-et választottak
+        if (selKey() !== key) return; // another VM was selected in the meantime
 
         screenEl.innerHTML = "";
         const proto = location.protocol === "https:" ? "wss" : "ws";
@@ -970,10 +970,10 @@ async function connectConsole() {
 
         r.addEventListener("connect", () => { retries = 0; });
         r.addEventListener("disconnect", () => {
-            if (rfb !== r) return; // szándékos lezárás
+            if (rfb !== r) return; // intentional close
             rfb = null;
             rfbKey = null;
-            setScreenMsg("A kapcsolat megszakadt, újracsatlakozás...");
+            setScreenMsg("The connection was lost, reconnecting...");
             if (retries++ < 5) setTimeout(syncConsole, 1500);
         });
 
@@ -1011,10 +1011,10 @@ function syncConsole() {
     $("#XM_CON_FULL").disabled = !isRunning;
 
     if (isRunning) {
-        connectConsole().catch((err) => setScreenMsg("Hiba: " + esc(err.message)));
+        connectConsole().catch((err) => setScreenMsg("Error: " + esc(err.message)));
     } else {
         disconnectConsole();
-        setScreenMsg("A VM le van állítva. Indítsd el a Start gombbal.");
+        setScreenMsg("The VM is stopped. Start it with the Start button.");
     }
 }
 
@@ -1025,7 +1025,7 @@ async function vmAction(act) {
     } catch (e) {
         showAlert(e.message);
     }
-    // indításnál a VNC port, leállításnál a folyamat kilépése miatt
+    // on start due to the VNC port, on stop due to the process exiting
     await new Promise((r) => setTimeout(r, 800));
     await refreshAll();
 }
@@ -1036,7 +1036,7 @@ $("#XM_CON_DETAILS").addEventListener("click", () => state.sel && openVm(state.s
 $("#XM_CON_CAD").addEventListener("click", () => rfb && rfb.sendCtrlAltDel());
 $("#XM_CON_FULL").addEventListener("click", () => screenEl.requestFullscreen && screenEl.requestFullscreen());
 
-// ---------- Docker konténerek ----------
+// ---------- Docker containers ----------
 function ctClass(c) {
     if (c.state === "running") return "running";
     if (c.state === "creating") return "creating";
@@ -1044,7 +1044,7 @@ function ctClass(c) {
     return "stopped";
 }
 
-// Konténerek listája az Overview panelen (kiválasztott node)
+// List of containers on the Overview panel (selected node)
 function renderCtList() {
     const info = state.containers[state.node] || { list: [], error: null };
     const msg = $("#XM_CT_MSG");
@@ -1055,23 +1055,23 @@ function renderCtList() {
         ? info.list.map((c) => {
             const cls = ctClass(c);
             const n = esc(c.name);
-            const details = `<button type="button" class="XM_BTN" data-ctact="stats" data-name="${n}" title="Statisztika és beállítások"><i class="fa-solid fa-chart-line"></i></button>`;
+            const details = `<button type="button" class="XM_BTN" data-ctact="stats" data-name="${n}" title="Stats and settings"><i class="fa-solid fa-chart-line"></i></button>`;
             const actions = cls === "running"
                 ? `${details}
-                   <button type="button" class="XM_BTN" data-ctact="open" data-name="${n}" title="Napló"><i class="fa-solid fa-file-lines"></i></button>
-                   <button type="button" class="XM_BTN" data-ctact="restart" data-name="${n}" title="Újraindítás"><i class="fa-solid fa-rotate"></i></button>
-                   <button type="button" class="XM_BTN" data-ctact="stop" data-name="${n}" title="Leállítás"><i class="fa-solid fa-stop"></i></button>`
+                   <button type="button" class="XM_BTN" data-ctact="open" data-name="${n}" title="Logs"><i class="fa-solid fa-file-lines"></i></button>
+                   <button type="button" class="XM_BTN" data-ctact="restart" data-name="${n}" title="Restart"><i class="fa-solid fa-rotate"></i></button>
+                   <button type="button" class="XM_BTN" data-ctact="stop" data-name="${n}" title="Stop"><i class="fa-solid fa-stop"></i></button>`
                 : cls === "stopped"
                     ? `${details}
-                       <button type="button" class="XM_BTN" data-ctact="open" data-name="${n}" title="Napló"><i class="fa-solid fa-file-lines"></i></button>
-                       <button type="button" class="XM_BTN" data-ctact="start" data-name="${n}" title="Indítás"><i class="fa-solid fa-play"></i></button>
-                       <button type="button" class="XM_BTN" data-ctact="delete" data-name="${n}" title="Törlés"><i class="fa-solid fa-trash"></i></button>`
+                       <button type="button" class="XM_BTN" data-ctact="open" data-name="${n}" title="Logs"><i class="fa-solid fa-file-lines"></i></button>
+                       <button type="button" class="XM_BTN" data-ctact="start" data-name="${n}" title="Start"><i class="fa-solid fa-play"></i></button>
+                       <button type="button" class="XM_BTN" data-ctact="delete" data-name="${n}" title="Delete"><i class="fa-solid fa-trash"></i></button>`
                     : cls === "error"
-                        ? `<button type="button" class="XM_BTN" data-ctact="open" data-name="${n}" title="Hiba részletei"><i class="fa-solid fa-file-lines"></i></button>
-                           <button type="button" class="XM_BTN" data-ctact="delete" data-name="${n}" title="Elvetés"><i class="fa-solid fa-trash"></i></button>`
+                        ? `<button type="button" class="XM_BTN" data-ctact="open" data-name="${n}" title="Error details"><i class="fa-solid fa-file-lines"></i></button>
+                           <button type="button" class="XM_BTN" data-ctact="delete" data-name="${n}" title="Discard"><i class="fa-solid fa-trash"></i></button>`
                         : "";
             return `
-                <li data-ctrow="${n}" title="Dupla kattintás: statisztika és beállítások">
+                <li data-ctrow="${n}" title="Double click: stats and settings">
                     <span>
                         <i class="fa-brands fa-docker"></i> ${n}
                         <small>${esc(c.image)}</small>
@@ -1082,7 +1082,7 @@ function renderCtList() {
                     <span>${actions}</span>
                 </li>`;
         }).join("")
-        : "<li>Még nincs konténer ezen a node-on.</li>";
+        : "<li>No container on this node yet.</li>";
 }
 
 $("#XM_CT_LIST").addEventListener("dblclick", (e) => {
@@ -1097,7 +1097,7 @@ $("#XM_CT_LIST").addEventListener("click", async (e) => {
     const { ctact, name } = btn.dataset;
     if (ctact === "open") return openContainer(state.node, name, "logs");
     if (ctact === "stats") return openContainer(state.node, name, "stats");
-    if (ctact === "delete" && !confirm(`Biztosan törlöd a(z) "${name}" konténert?`)) return;
+    if (ctact === "delete" && !confirm(`Are you sure you want to delete the "${name}" container?`)) return;
     btn.disabled = true;
     try {
         await api(`${nb(state.node)}/containers/${enc(name)}` + (ctact === "delete" ? "" : "/" + ctact), {
@@ -1109,7 +1109,7 @@ $("#XM_CT_LIST").addEventListener("click", async (e) => {
     refreshAll();
 });
 
-// Konténer létrehozó űrlap
+// Container creation form
 function renderCtNodeSelect(force) {
     const sel = $("#ccr-node");
     const prev = force || sel.value || state.node;
@@ -1142,7 +1142,7 @@ $("#XM_CCR_FORM").addEventListener("submit", async (e) => {
         state.node = node;
         await refreshAll();
         showPane("XM_PANE_VMS");
-        showAlert(`A(z) "${name}" konténer létrehozása elindult. Az image letöltése eltarthat egy ideig, az állapota a listában frissül.`);
+        showAlert(`Container "${name}" creation has started. Downloading the image may take a while; its state will update in the list.`);
     } catch (err) {
         showAlert(err.message);
     } finally {
@@ -1150,7 +1150,7 @@ $("#XM_CCR_FORM").addEventListener("submit", async (e) => {
     }
 });
 
-// Konténer részletek: napló, statisztika, beállítások
+// Container details: logs, stats, settings
 const logEl = $("#XM_CLOG");
 let logsBusy = false;
 let ctStatsBusy = false;
@@ -1169,7 +1169,7 @@ function openContainer(node, name, tab = "logs") {
     ctFormLoaded = null;
     renderTree();
     logEl.textContent = "";
-    $("#XM_CT_STATS").innerHTML = "<small>Betöltés...</small>";
+    $("#XM_CT_STATS").innerHTML = "<small>Loading...</small>";
     setTab("#XM_CT_TABS", tab, (t) => {
         if (t === "logs") loadLogs();
         if (t === "stats") loadCtStats();
@@ -1186,7 +1186,7 @@ async function loadLogs() {
         const data = await api(`${nb(node)}/containers/${enc(name)}/logs?tail=300`);
         if (state.csel && state.csel.node === node && state.csel.name === name) {
             const atBottom = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 40;
-            logEl.textContent = data.logs || "(nincs napló)";
+            logEl.textContent = data.logs || "(no logs)";
             if (atBottom) logEl.scrollTop = logEl.scrollHeight;
         }
     } catch (err) {
@@ -1204,7 +1204,7 @@ function renderCtStats(s) {
 
     cards.push(card("CPU", s.cpu.percent == null || isNaN(s.cpu.percent)
         ? `<div class="XM_BIG">–</div>`
-        : `<div class="XM_BIG">${s.cpu.percent.toFixed(1)}%</div>${bar(s.cpu.percent, "egy mag = 100%")}`));
+        : `<div class="XM_BIG">${s.cpu.percent.toFixed(1)}%</div>${bar(s.cpu.percent, "one core = 100%")}`));
 
     cards.push(card("Memory", s.memory.used == null
         ? `<div class="XM_BIG">–</div>`
@@ -1213,14 +1213,14 @@ function renderCtStats(s) {
 
     let net = "";
     if (s.network.ips.length) net += s.network.ips.map((ip) => `<div><strong>${esc(ip)}</strong></div>`).join("");
-    else net += "<small>Nincs IP-cím</small>";
-    if (s.network.io) net += `<small>Hálózat (be / ki): ${esc(s.network.io)}</small>`;
+    else net += "<small>No IP address</small>";
+    if (s.network.io) net += `<small>Network (in / out): ${esc(s.network.io)}</small>`;
     cards.push(card("Network", net));
 
-    let disk = `<small>Írható réteg: ${s.disk.writable == null ? "–" : fmtBytes(s.disk.writable)}</small>
-        <small>Image + réteg: ${s.disk.rootfs == null ? "–" : fmtBytes(s.disk.rootfs)}</small>`;
-    if (s.block) disk += `<small>Lemez I/O (olvasás / írás): ${esc(s.block)}</small>`;
-    if (s.pids != null) disk += `<small>Folyamatok: ${esc(s.pids)}</small>`;
+    let disk = `<small>Writable layer: ${s.disk.writable == null ? "–" : fmtBytes(s.disk.writable)}</small>
+        <small>Image + layer: ${s.disk.rootfs == null ? "–" : fmtBytes(s.disk.rootfs)}</small>`;
+    if (s.block) disk += `<small>Disk I/O (read / write): ${esc(s.block)}</small>`;
+    if (s.pids != null) disk += `<small>Processes: ${esc(s.pids)}</small>`;
     cards.push(card("Disk", disk));
 
     $("#XM_CT_STATS").innerHTML = `<div class="XM_CARDS">${cards.join("")}</div>`;
@@ -1234,7 +1234,7 @@ async function loadCtStats() {
         const s = await api(`${nb(sel.node)}/containers/${enc(sel.name)}/stats`);
         if (state.csel && state.csel.node === sel.node && state.csel.name === sel.name) {
             if (s.cpu) renderCtStats(s);
-            else $("#XM_CT_STATS").innerHTML = `<small>A konténer még nem áll készen (${esc(s.state)}).</small>`;
+            else $("#XM_CT_STATS").innerHTML = `<small>The container is not ready yet (${esc(s.state)}).</small>`;
         }
     } catch (err) {
         if (state.csel) $("#XM_CT_STATS").innerHTML = `<p class="XM_ERR">${esc(err.message)}</p>`;
@@ -1258,8 +1258,8 @@ async function loadCtForm(force) {
         form.querySelectorAll("input, select, textarea, button").forEach((el) => (el.disabled = !d.editable));
         msg.hidden = d.editable;
         msg.textContent = d.editable ? "" : (d.state === "creating"
-            ? "A konténer még készül, utána szerkeszthető."
-            : "Ez a konténer a XenMox egy régebbi verziójában készült, a beállításai nem szerkeszthetők.");
+            ? "The container is still being created; it can be edited afterwards."
+            : "This container was created by an older version of XenMox; its settings cannot be edited.");
         $("#ctse-image").value = d.image || "";
         $("#ctse-restart").value = c ? c.restart : "unless-stopped";
         $("#ctse-ports").value = c ? c.ports.join("\n") : "";
@@ -1277,7 +1277,7 @@ $("#XM_CTSE_FORM").addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!state.csel) return;
     const { node, name } = state.csel;
-    if (!confirm(`A mentés újra létrehozza a(z) "${name}" konténert. Folytatod?`)) return;
+    if (!confirm(`Saving recreates the "${name}" container. Continue?`)) return;
     const btn = $("#XM_CTSE_SAVE");
     btn.disabled = true;
     try {
@@ -1293,7 +1293,7 @@ $("#XM_CTSE_FORM").addEventListener("submit", async (e) => {
         ctFormLoaded = null;
         await refreshAll();
         setTab("#XM_CT_TABS", "logs", () => loadLogs());
-        showAlert("A módosítás elindult: a konténer újra létrejön, az állapota a listában frissül.");
+        showAlert("The change has started: the container will be recreated; its state will update in the list.");
     } catch (err) {
         showAlert(err.message);
     } finally {
@@ -1343,18 +1343,18 @@ $("#XM_CT_START").addEventListener("click", () => ctAction("start"));
 $("#XM_CT_STOP").addEventListener("click", () => ctAction("stop"));
 $("#XM_CT_RESTART").addEventListener("click", () => ctAction("restart"));
 $("#XM_CT_DELETE").addEventListener("click", async () => {
-    if (!state.csel || !confirm(`Biztosan törlöd a(z) "${state.csel.name}" konténert?`)) return;
+    if (!state.csel || !confirm(`Are you sure you want to delete the "${state.csel.name}" container?`)) return;
     await ctAction("delete");
 });
 $("#XM_CT_REFRESH").addEventListener("click", loadLogs);
 
-// Élő statisztikák: csak a nyitott Stats fülön frissül
+// Live stats: only refreshed on the open Stats tab
 function tickStats() {
     if (locked) return;
     if (state.vsel && activeTab("#XM_VM_TABS") === "stats") loadVmStats();
     if (state.csel && activeTab("#XM_CT_TABS") === "stats") loadCtStats();
 }
 
-// ---------- Indulás ----------
+// ---------- Startup ----------
 showTab(0);
 init();

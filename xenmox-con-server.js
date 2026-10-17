@@ -1,16 +1,16 @@
 "use strict";
 /**
- * xenmox-con-server – a node ügynök.
- * Nincs webes felülete: egy XenMox főszerver adja hozzá (Datacenter settings → Add node),
- * és innentől onnan irányítja a VM-eket és konténereket.
+ * xenmox-con-server – the node agent.
+ * It has no web interface: a XenMox main server adds it (Datacenter settings → Add node),
+ * and from then on it manages the VMs and containers from there.
  *
- * Első használat előtt felhasználót kell beállítani:   npm run con-server -- --setup
- * Amíg nincs beállítva felhasználó, a szerver minden kérést visszautasít.
+ * Before first use, a user must be set up:   npm run con-server -- --setup
+ * Until a user is configured, the server rejects every request.
  *
- * Beállítások (környezeti változók):
- *   XENMOX_PORT   port (alapból 3001)
- *   XENMOX_DATA   adatmappa (alapból ./data)
- *   XENMOX_USER, XENMOX_PASS   csak a --setup nem interaktív használatához
+ * Settings (environment variables):
+ *   XENMOX_PORT   port (default 3001)
+ *   XENMOX_DATA   data directory (default ./data)
+ *   XENMOX_USER, XENMOX_PASS   only for non-interactive use of --setup
  */
 const express = require("express");
 const fs = require("fs");
@@ -33,20 +33,20 @@ if (process.argv.includes("--setup")) {
 function start() {
     const limiter = createLimiter({ max: 10, windowMs: 60000, lockMs: 60000 });
 
-    // null, ha a kérés hitelesített; különben {status, msg}
+    // null if the request is authenticated; otherwise {status, msg}
     async function authenticate(req) {
         auth.refresh();
         if (!auth.configured) {
-            return { status: 503, msg: "A con-server még nincs beállítva (futtasd rajta: npm run con-server -- --setup)", setup: true };
+            return { status: 503, msg: "The con-server is not configured yet (run on it: npm run con-server -- --setup)", setup: true };
         }
         const ip = req.socket.remoteAddress || "";
-        if (limiter.blocked(ip)) return { status: 429, msg: "Túl sok sikertelen próbálkozás, próbáld újra később" };
+        if (limiter.blocked(ip)) return { status: 429, msg: "Too many failed attempts, try again later" };
         if (await auth.verifyBasic(req.headers.authorization)) {
             limiter.ok(ip);
             return null;
         }
         limiter.fail(ip);
-        return { status: 401, msg: "Hibás vagy hiányzó felhasználónév/jelszó" };
+        return { status: 401, msg: "Invalid or missing username/password" };
     }
 
     const node = createNode({ dataDir: DATA_DIR });
@@ -59,17 +59,17 @@ function start() {
         next();
     });
     app.use("/api", node.router);
-    app.use((req, res) => res.status(404).json({ error: "Nincs ilyen útvonal" }));
+    app.use((req, res) => res.status(404).json({ error: "No such route" }));
 
     const server = app.listen(PORT, () => {
-        console.log("xenmox-con-server fut");
+        console.log("xenmox-con-server running");
         console.log(`  port: ${PORT}`);
         if (auth.configured) {
-            console.log(`  felhasználó: ${auth.username}`);
-            console.log("Add hozzá a főszerver webes felületén: Datacenter settings → Add node");
+            console.log(`  user: ${auth.username}`);
+            console.log("Add it in the main server's web interface: Datacenter settings → Add node");
         } else {
-            console.log("  ZÁROLVA: még nincs felhasználó beállítva, minden kérés elutasításra kerül.");
-            console.log("  Állítsd be (egyszer):  npm run con-server -- --setup");
+            console.log("  LOCKED: no user configured yet, every request is rejected.");
+            console.log("  Set it up (once):  npm run con-server -- --setup");
         }
     });
 

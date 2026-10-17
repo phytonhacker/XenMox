@@ -1,10 +1,10 @@
 "use strict";
 /**
- * XenMox főszerver: webes felület (bejelentkezéssel) + helyi node + távoli node-ok (xenmox-con-server)
- * + más XenMox főszerverek datacenterének megjelenítése (federáció).
+ * XenMox main server: web interface (with login) + local node + remote nodes (xenmox-con-server)
+ * + displaying the datacenters of other XenMox main servers (federation).
  *
- * Első használatkor a webes felületen (vagy parancssorból: npm start -- --setup) felhasználót kell beállítani.
- * Amíg nincs beállítva, a szerver minden API kérést visszautasít.
+ * On first use, a user must be set up in the web interface (or from the command line: npm start -- --setup).
+ * Until then, the server rejects every API request.
  */
 const express = require("express");
 const http = require("http");
@@ -22,20 +22,20 @@ fs.mkdirSync(DATA_DIR, { recursive: true });
 const auth = new AuthStore(path.join(DATA_DIR, "auth.json"));
 
 if (process.argv.includes("--setup")) {
-    runSetup(auth, "XenMox főszerver").then(() => process.exit(0));
+    runSetup(auth, "XenMox main server").then(() => process.exit(0));
 } else {
     start();
 }
 
 function start() {
-    // ---------- Regisztráció: datacenter, node-ok, összekötött datacenterek ----------
+    // ---------- Registry: datacenter, nodes, linked datacenters ----------
     const REG_FILE = path.join(DATA_DIR, "nodes.json");
     let registry = fs.existsSync(REG_FILE)
         ? JSON.parse(fs.readFileSync(REG_FILE, "utf8"))
         : { datacenter: "prod-eu-central", nodes: [] };
     if (!registry.nodes.some((n) => n.local)) registry.nodes.unshift({ id: "local", name: "prod1", local: true });
-    if (!Array.isArray(registry.dcs)) registry.dcs = []; // összekötött távoli datacenterek
-    if (!registry.fedToken) registry.fedToken = crypto.randomBytes(24).toString("hex"); // ezzel kapcsolódhatnak hozzánk
+    if (!Array.isArray(registry.dcs)) registry.dcs = []; // linked remote datacenters
+    if (!registry.fedToken) registry.fedToken = crypto.randomBytes(24).toString("hex"); // others can connect to us with this
     const saveRegistry = () => fs.writeFileSync(REG_FILE, JSON.stringify(registry, null, 2), { mode: 0o600 });
     saveRegistry();
     fs.chmodSync(REG_FILE, 0o600);
@@ -60,12 +60,12 @@ function start() {
         next();
     });
 
-    // A bejelentkező felület fájljai (és a noVNC könyvtár) nyilvánosak, titkot nem tartalmaznak
+    // The files of the login interface (and the noVNC directory) are public and contain no secrets
     app.use(express.static(path.join(__dirname, "public")));
     app.use("/novnc", express.static(path.join(__dirname, "node_modules", "@novnc", "novnc")));
 
-    // ---------- Segédek ----------
-    // Hitelesítési fejléc a célszerverhez: con-server → Basic (felhasználó/jelszó), másik főszerver → Bearer (federációs token)
+    // ---------- Helpers ----------
+    // Authorization header for the target server: con-server → Basic (user/password), other main server → Bearer (federation token)
     function authHeaderFor(target) {
         if (target.username) return "Basic " + Buffer.from(`${target.username}:${target.password}`).toString("base64");
         return `Bearer ${target.token}`;
@@ -77,7 +77,7 @@ function start() {
 
     function sameOrigin(req) {
         const origin = req.headers.origin;
-        if (!origin) return true; // nem böngészős kliens
+        if (!origin) return true; // non-browser client
         try {
             return new URL(origin).host === req.headers.host;
         } catch {
@@ -97,12 +97,12 @@ function start() {
 
     function requireFedToken(req, res, next) {
         auth.refresh();
-        if (!auth.configured) return res.status(503).json({ error: "A szerver még nincs beállítva", setup: true });
+        if (!auth.configured) return res.status(503).json({ error: "The server is not configured yet", setup: true });
         if (fedAuthOk(req)) return next();
-        res.status(401).json({ error: "Hibás vagy hiányzó federációs token" });
+        res.status(401).json({ error: "Invalid or missing federation token" });
     }
 
-    // GET egy távoli szerverre (con-server vagy másik főszerver)
+    // GET to a remote server (con-server or another main server)
     function getJson(target, fullPath, timeoutMs = 2500) {
         return new Promise((resolve, reject) => {
             const req = http.request(
@@ -128,10 +128,10 @@ function start() {
 
     const unreachable = (err, what) =>
         err.code === "ECONNREFUSED"
-            ? `A kapcsolat elutasítva – fut a ${what} ezen a porton?`
-            : "A szerver nem érhető el (cím, port, tűzfal?)";
+            ? `Connection refused – is ${what} running on this port?`
+            : "The server is unreachable (address, port, firewall?)";
 
-    // Kérés továbbítása streamként (az ISO feltöltés sem pufferelődik). A böngésző sütije nem megy tovább.
+    // Forwards the request as a stream (so ISO uploads are not buffered either). The browser cookie is not forwarded.
     function streamProxy(req, res, target, prefix) {
         const headers = { ...req.headers, authorization: authHeaderFor(target), host: `${target.host}:${target.port}` };
         delete headers.cookie;
@@ -146,7 +146,7 @@ function start() {
         );
         proxyReq.on("timeout", () => proxyReq.destroy(new Error("timeout")));
         proxyReq.on("error", () => {
-            if (!res.headersSent) res.status(502).json({ error: "A szerver nem érhető el" });
+            if (!res.headersSent) res.status(502).json({ error: "The server is unreachable" });
             else res.destroy();
         });
         req.pipe(proxyReq);
@@ -174,7 +174,7 @@ function start() {
         );
     }
 
-    // ---------- Bejelentkezés ----------
+    // ---------- Login ----------
     const authRouter = express.Router();
     let setupBusy = false;
 
@@ -186,7 +186,7 @@ function start() {
 
     authRouter.post("/setup", express.json(), async (req, res) => {
         auth.refresh();
-        if (auth.configured || setupBusy) return res.status(409).json({ error: "A felhasználó már be van állítva" });
+        if (auth.configured || setupBusy) return res.status(409).json({ error: "The user is already set up" });
         const { username, password } = req.body || {};
         const err = validateCredentials(username, password);
         if (err) return res.status(400).json({ error: err });
@@ -202,13 +202,13 @@ function start() {
 
     authRouter.post("/login", express.json(), async (req, res) => {
         auth.refresh();
-        if (!auth.configured) return res.status(403).json({ error: "Először állítsd be a felhasználót", setup: true });
+        if (!auth.configured) return res.status(403).json({ error: "Set up the user first", setup: true });
         const ip = req.socket.remoteAddress || "";
-        if (loginLimiter.blocked(ip)) return res.status(429).json({ error: "Túl sok sikertelen próbálkozás, próbáld újra egy perc múlva" });
+        if (loginLimiter.blocked(ip)) return res.status(429).json({ error: "Too many failed attempts, try again in a minute" });
         const { username, password } = req.body || {};
         if (typeof username !== "string" || typeof password !== "string" || !(await auth.verify(username, password))) {
             loginLimiter.fail(ip);
-            return res.status(401).json({ error: "Hibás felhasználónév vagy jelszó" });
+            return res.status(401).json({ error: "Invalid username or password" });
         }
         loginLimiter.ok(ip);
         setSessionCookie(req, res, sessions.create(auth.username));
@@ -223,40 +223,40 @@ function start() {
 
     authRouter.post("/password", express.json(), async (req, res) => {
         const id = parseCookies(req.headers.cookie)[COOKIE];
-        if (!auth.configured || !sessions.get(id)) return res.status(401).json({ error: "Be kell jelentkezned", login: true });
+        if (!auth.configured || !sessions.get(id)) return res.status(401).json({ error: "You must log in", login: true });
         const ip = req.socket.remoteAddress || "";
-        if (loginLimiter.blocked(`pw:${ip}`)) return res.status(429).json({ error: "Túl sok sikertelen próbálkozás, próbáld újra egy perc múlva" });
+        if (loginLimiter.blocked(`pw:${ip}`)) return res.status(429).json({ error: "Too many failed attempts, try again in a minute" });
         const { current, password } = req.body || {};
         if (typeof current !== "string" || !(await auth.verify(auth.username, current))) {
             loginLimiter.fail(`pw:${ip}`);
-            return res.status(400).json({ error: "A jelenlegi jelszó hibás" });
+            return res.status(400).json({ error: "The current password is incorrect" });
         }
         const err = validateCredentials(auth.username, password);
         if (err) return res.status(400).json({ error: err });
         await auth.set(auth.username, password);
-        sessions.destroyAllExcept(id); // a többi munkamenet érvénytelenné válik
+        sessions.destroyAllExcept(id); // the other sessions become invalid
         res.json({ ok: true });
     });
 
-    // Böngészős kérések védelme a CSRF ellen: módosító kérés csak a saját oldalról jöhet
+    // Protect browser requests against CSRF: modifying requests may only come from our own page
     app.use("/api", (req, res, next) => {
         if (!["GET", "HEAD", "OPTIONS"].includes(req.method) && !sameOrigin(req)) {
-            return res.status(403).json({ error: "Idegen eredetű kérés" });
+            return res.status(403).json({ error: "Request from a foreign origin" });
         }
         next();
     });
 
     app.use("/api/auth", authRouter);
 
-    // Innentől minden /api végpont bejelentkezést igényel
+    // From here on, every /api endpoint requires login
     app.use("/api", (req, res, next) => {
         auth.refresh();
-        if (!auth.configured) return res.status(403).json({ error: "Először állítsd be a felhasználót", setup: true });
-        if (!sessionOf(req)) return res.status(401).json({ error: "Be kell jelentkezned", login: true });
+        if (!auth.configured) return res.status(403).json({ error: "Set up the user first", setup: true });
+        if (!sessionOf(req)) return res.status(401).json({ error: "You must log in", login: true });
         next();
     });
 
-    // ---------- Datacenterek listája (saját + összekötöttek) ----------
+    // ---------- List of datacenters (own + linked) ----------
     async function remoteDcState(dc) {
         try {
             const r = await getJson(dc, "/fed/nodes", 3000);
@@ -268,8 +268,8 @@ function start() {
                 }
                 return { online: true, name: d.datacenter, nodes: d.nodes || [] };
             }
-            if (r.status === 401) return { online: false, name: dc.lastName, nodes: [], error: "A federációs token már nem érvényes" };
-            if (r.status === 503) return { online: false, name: dc.lastName, nodes: [], error: "A másik szerver még nincs beállítva" };
+            if (r.status === 401) return { online: false, name: dc.lastName, nodes: [], error: "The federation token is no longer valid" };
+            if (r.status === 503) return { online: false, name: dc.lastName, nodes: [], error: "The other server is not configured yet" };
         } catch {}
         return { online: false, name: dc.lastName, nodes: [] };
     }
@@ -307,24 +307,24 @@ function start() {
             token: String(b.token || "").trim(),
         };
 
-        if (!HOST_RE.test(cand.host)) return res.status(400).json({ error: "Érvénytelen cím" });
-        if (!Number.isInteger(cand.port) || cand.port < 1 || cand.port > 65535) return res.status(400).json({ error: "Érvénytelen port" });
-        if (!cand.token) return res.status(400).json({ error: "A federációs token kötelező" });
-        if (safeEqual(cand.token, registry.fedToken)) return res.status(400).json({ error: "Ez a saját szervered tokenje" });
+        if (!HOST_RE.test(cand.host)) return res.status(400).json({ error: "Invalid address" });
+        if (!Number.isInteger(cand.port) || cand.port < 1 || cand.port > 65535) return res.status(400).json({ error: "Invalid port" });
+        if (!cand.token) return res.status(400).json({ error: "The federation token is required" });
+        if (safeEqual(cand.token, registry.fedToken)) return res.status(400).json({ error: "This is your own server's token" });
         if (registry.dcs.some((d) => d.host === cand.host && d.port === cand.port)) {
-            return res.status(409).json({ error: "Ez a datacenter már össze van kötve" });
+            return res.status(409).json({ error: "This datacenter is already linked" });
         }
 
         try {
             const r = await getJson(cand, "/fed/nodes", 4000);
-            if (r.status === 401) return res.status(400).json({ error: "Hibás federációs token" });
-            if (r.status === 503) return res.status(400).json({ error: "A másik szerver még nincs beállítva (előbb hozz létre rajta felhasználót)" });
-            if (r.status !== 200) return res.status(400).json({ error: "A cím nem XenMox főszerver" });
+            if (r.status === 401) return res.status(400).json({ error: "Invalid federation token" });
+            if (r.status === 503) return res.status(400).json({ error: "The other server is not configured yet (create a user on it first)" });
+            if (r.status !== 200) return res.status(400).json({ error: "The address is not a XenMox main server" });
             const d = JSON.parse(r.body);
-            if (!d.datacenter || !Array.isArray(d.nodes)) return res.status(400).json({ error: "A cím nem XenMox főszerver" });
+            if (!d.datacenter || !Array.isArray(d.nodes)) return res.status(400).json({ error: "The address is not a XenMox main server" });
             cand.lastName = d.datacenter;
         } catch (err) {
-            return res.status(400).json({ error: unreachable(err, "XenMox főszerver") });
+            return res.status(400).json({ error: unreachable(err, "XenMox main server") });
         }
 
         registry.dcs.push(cand);
@@ -334,21 +334,21 @@ function start() {
 
     app.delete("/api/dcs/:did", (req, res) => {
         const dc = registry.dcs.find((d) => d.id === req.params.did);
-        if (!dc) return res.status(404).json({ error: "Nincs ilyen datacenter" });
+        if (!dc) return res.status(404).json({ error: "No such datacenter" });
         registry.dcs = registry.dcs.filter((d) => d !== dc);
         saveRegistry();
         res.json({ ok: true });
     });
 
-    // Összekötött datacenter node-jainak kezelése: /api/dcs/:did/nodes/:nid/...
+    // Managing the nodes of a linked datacenter: /api/dcs/:did/nodes/:nid/...
     app.use("/api/dcs/:did", (req, res, next) => {
         if (req.url === "/" || req.url === "") return next();
         const dc = registry.dcs.find((d) => d.id === req.params.did);
-        if (!dc) return res.status(404).json({ error: "Nincs ilyen datacenter" });
+        if (!dc) return res.status(404).json({ error: "No such datacenter" });
         streamProxy(req, res, dc, "/fed");
     });
 
-    // ---------- Federációs token (más szerverek ezzel kapcsolódnak hozzánk) ----------
+    // ---------- Federation token (other servers connect to us with this) ----------
     app.get("/api/federation", (req, res) => res.json({ token: registry.fedToken }));
 
     app.post("/api/federation/regenerate", (req, res) => {
@@ -357,10 +357,10 @@ function start() {
         res.json({ token: registry.fedToken });
     });
 
-    // ---------- Saját datacenter / node-ok kezelése ----------
+    // ---------- Managing the own datacenter / nodes ----------
     app.patch("/api/datacenter", express.json(), (req, res) => {
         const name = String((req.body && req.body.name) || "").trim();
-        if (!DC_RE.test(name)) return res.status(400).json({ error: "Érvénytelen datacenter név" });
+        if (!DC_RE.test(name)) return res.status(400).json({ error: "Invalid datacenter name" });
         registry.datacenter = name;
         saveRegistry();
         res.json({ datacenter: name });
@@ -377,23 +377,23 @@ function start() {
             password: typeof b.password === "string" ? b.password : "",
         };
 
-        if (!NAME_RE.test(cand.name)) return res.status(400).json({ error: "Érvénytelen node név (betű, szám, . _ -)" });
-        if (!HOST_RE.test(cand.host)) return res.status(400).json({ error: "Érvénytelen cím" });
-        if (!Number.isInteger(cand.port) || cand.port < 1 || cand.port > 65535) return res.status(400).json({ error: "Érvénytelen port" });
-        if (!cand.username || !cand.password) return res.status(400).json({ error: "A felhasználónév és a jelszó kötelező" });
+        if (!NAME_RE.test(cand.name)) return res.status(400).json({ error: "Invalid node name (letters, digits, . _ -)" });
+        if (!HOST_RE.test(cand.host)) return res.status(400).json({ error: "Invalid address" });
+        if (!Number.isInteger(cand.port) || cand.port < 1 || cand.port > 65535) return res.status(400).json({ error: "Invalid port" });
+        if (!cand.username || !cand.password) return res.status(400).json({ error: "The username and password are required" });
         if (registry.nodes.some((n) => n.name.toLowerCase() === cand.name.toLowerCase())) {
-            return res.status(409).json({ error: "Ilyen nevű node már van" });
+            return res.status(409).json({ error: "A node with this name already exists" });
         }
         if (registry.nodes.some((n) => n.host === cand.host && n.port === cand.port)) {
-            return res.status(409).json({ error: "Ez a node már hozzá van adva" });
+            return res.status(409).json({ error: "This node has already been added" });
         }
 
         try {
             const r = await getJson(cand, "/api/ping", 4000);
-            if (r.status === 401) return res.status(400).json({ error: "Hibás felhasználónév vagy jelszó" });
-            if (r.status === 429) return res.status(400).json({ error: "A node túl sok sikertelen próbálkozást látott, próbáld újra később" });
-            if (r.status === 503) return res.status(400).json({ error: "A con-server még nincs beállítva (futtasd rajta: npm run con-server -- --setup)" });
-            if (r.status !== 200) return res.status(400).json({ error: "A cím nem xenmox-con-server" });
+            if (r.status === 401) return res.status(400).json({ error: "Invalid username or password" });
+            if (r.status === 429) return res.status(400).json({ error: "The node has seen too many failed attempts, try again later" });
+            if (r.status === 503) return res.status(400).json({ error: "The con-server is not configured yet (run on it: npm run con-server -- --setup)" });
+            if (r.status !== 200) return res.status(400).json({ error: "The address is not a xenmox-con-server" });
         } catch (err) {
             return res.status(400).json({ error: unreachable(err, "xenmox-con-server") });
         }
@@ -405,11 +405,11 @@ function start() {
 
     app.patch("/api/nodes/:nid", express.json(), (req, res) => {
         const node = registry.nodes.find((n) => n.id === req.params.nid);
-        if (!node) return res.status(404).json({ error: "Nincs ilyen node" });
+        if (!node) return res.status(404).json({ error: "No such node" });
         const name = String((req.body && req.body.name) || "").trim();
-        if (!NAME_RE.test(name)) return res.status(400).json({ error: "Érvénytelen node név (betű, szám, . _ -)" });
+        if (!NAME_RE.test(name)) return res.status(400).json({ error: "Invalid node name (letters, digits, . _ -)" });
         if (registry.nodes.some((n) => n !== node && n.name.toLowerCase() === name.toLowerCase())) {
-            return res.status(409).json({ error: "Ilyen nevű node már van" });
+            return res.status(409).json({ error: "A node with this name already exists" });
         }
         node.name = name;
         saveRegistry();
@@ -418,16 +418,16 @@ function start() {
 
     app.delete("/api/nodes/:nid", (req, res) => {
         const node = registry.nodes.find((n) => n.id === req.params.nid);
-        if (!node) return res.status(404).json({ error: "Nincs ilyen node" });
-        if (node.local) return res.status(400).json({ error: "A helyi node nem távolítható el" });
+        if (!node) return res.status(404).json({ error: "No such node" });
+        if (node.local) return res.status(400).json({ error: "The local node cannot be removed" });
         registry.nodes = registry.nodes.filter((n) => n !== node);
         saveRegistry();
         res.json({ ok: true });
     });
 
-    // ---------- Node API: a UI-nak (/api, munkamenettel) és más főszervereknek (/fed, tokennel) ----------
-    // A /fed csak a saját node-okat adja ki, az összekötött datacentereket nem (nincs láncolás/hurok),
-    // és a kezelő műveleteket (átnevezés, node hozzáadás) sem tartalmazza.
+    // ---------- Node API: for the UI (/api, with a session) and for other main servers (/fed, with a token) ----------
+    // /fed only exposes the own nodes, not the linked datacenters (no chaining/loops),
+    // and does not include the management operations (renaming, adding nodes) either.
     const nodeApi = express.Router();
 
     nodeApi.get("/nodes", async (req, res) => {
@@ -439,7 +439,7 @@ function start() {
     nodeApi.use("/nodes/:nid", (req, res, next) => {
         if (req.url === "/" || req.url === "") return next();
         const node = registry.nodes.find((n) => n.id === req.params.nid);
-        if (!node) return res.status(404).json({ error: "Nincs ilyen node" });
+        if (!node) return res.status(404).json({ error: "No such node" });
         if (node.local) return local.router(req, res, next);
         streamProxy(req, res, node, "/api");
     });
@@ -447,18 +447,18 @@ function start() {
     app.use("/api", nodeApi);
     app.use("/fed", requireFedToken, nodeApi);
 
-    app.use((req, res) => res.status(404).json({ error: "Nincs ilyen útvonal" }));
+    app.use((req, res) => res.status(404).json({ error: "No such route" }));
 
-    // ---------- Indítás ----------
+    // ---------- Startup ----------
     const server = app.listen(PORT, () => {
-        console.log(`XenMox fut: http://localhost:${PORT}`);
+        console.log(`XenMox running: http://localhost:${PORT}`);
         if (!auth.configured) {
-            console.log("Még nincs felhasználó beállítva: nyisd meg a webes felületet, és hozd létre az adminisztrátort");
-            console.log("(vagy parancssorból: npm start -- --setup). Addig minden API kérés elutasításra kerül.");
+            console.log("No user configured yet: open the web interface and create the administrator");
+            console.log("(or from the command line: npm start -- --setup). Until then every API request is rejected.");
         }
     });
 
-    // ---------- noVNC: WebSocket híd ----------
+    // ---------- noVNC: WebSocket bridge ----------
     const wss = new WebSocketServer({ noServer: true });
 
     const rejectUpgrade = (socket, code, text) => {
@@ -466,7 +466,7 @@ function start() {
         socket.destroy();
     };
 
-    // Továbbítás egy távoli szerver WebSocketjére (con-server vagy másik főszerver)
+    // Forwards to a remote server's WebSocket (con-server or another main server)
     function pipeRemote(req, socket, head, url, target) {
         let opened = false;
         const remote = new WebSocket(url, { headers: { Authorization: authHeaderFor(target) }, handshakeTimeout: 5000 });
@@ -489,7 +489,7 @@ function start() {
         });
     }
 
-    // Saját node VNC-je: helyi vagy con-serveren keresztül
+    // Own node VNC: locally or through a con-server
     function bridgeOwnNode(req, socket, head, nodeId, vmId) {
         const node = registry.nodes.find((n) => n.id === nodeId);
         if (!node) return rejectUpgrade(socket, 404, "Not Found");
@@ -502,7 +502,7 @@ function start() {
         let m;
         auth.refresh();
 
-        // /api: csak bejelentkezett felhasználó, saját oldalról (WebSocket-eltérítés ellen)
+        // /api: only a logged-in user, from our own page (against WebSocket hijacking)
         if (url.startsWith("/api/")) {
             if (!auth.configured) return rejectUpgrade(socket, 403, "Forbidden");
             if (!sameOrigin(req)) return rejectUpgrade(socket, 403, "Forbidden");
